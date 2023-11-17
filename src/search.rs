@@ -1,12 +1,11 @@
 use std::rc::Rc;
-use std::sync::mpsc::Sender;
 use std::sync::RwLock;
 use grep::regex::RegexMatcher;
 use grep::searcher::{BinaryDetection, SearcherBuilder};
 use grep::searcher::sinks::UTF8;
 use log::{debug, error, info};
 use winsafe::{prelude::*, gui, co, HFONT, SIZE};
-use winsafe::co::{CHARSET, CLIP, COLOR, CS, ES, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, WS, WS_EX};
+use winsafe::co::{CHARSET, CLIP, COLOR, ES, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, WS};
 use winsafe::gui::{Brush, Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
 use crate::SETTINGS;
@@ -141,7 +140,7 @@ impl SearchWindow
                 let index = msg.iItem;
                 let lnum_str = myself.search_results.items().get(index as u32).text(0);
 
-                if let Ok(num) = u64::from_str_radix(lnum_str.as_str(), 10) {
+                if let Ok(num) = lnum_str.as_str().parse::<u64>() {
                     debug!("SEARCH WINDOW: USER DOUBLE CLICKED ON ITEM {index} => parse to line {num}");
 
                 }
