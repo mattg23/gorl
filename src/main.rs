@@ -1,20 +1,20 @@
-mod settings;
 mod search;
+mod settings;
 
-use std::collections::Bound;
-use std::fs::{File};
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
-use std::ops::{RangeBounds};
-use std::rc::Rc;
-use std::sync::RwLock;
 use lazy_static::lazy_static;
 use log::{debug, error, info};
+use std::collections::Bound;
+use std::fs::File;
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::ops::RangeBounds;
+use std::rc::Rc;
+use std::sync::RwLock;
 
-use winsafe::{prelude::*, gui, co, WString, HFONT, SIZE};
+use crate::search::SearchWindow;
 use winsafe::co::{CHARSET, CLIP, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY};
 use winsafe::gui::{Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
-use crate::search::SearchWindow;
+use winsafe::{co, gui, prelude::*, WString, HFONT, SIZE};
 
 lazy_static! {
     static ref SETTINGS: RwLock<settings::Settings> = RwLock::new(settings::Settings::new());
@@ -43,30 +43,39 @@ pub struct GorlMainWindow {
 
 impl GorlMainWindow {
     pub fn new(view: Rc<RwLock<Option<LineBasedFileView>>>) -> Self {
-        let wnd = gui::WindowMain::new( // instantiate the window manager
-                                        gui::WindowMainOpts {
-                                            title: "GORL - Drag text file into view to start...".to_owned(),
-                                            size: (900, 600),
-                                            style: gui::WindowMainOpts::default().style |
-                                                co::WS::MINIMIZEBOX | co::WS::MAXIMIZEBOX | co::WS::SIZEBOX,
-                                            ..Default::default() // leave all other options as default
-                                        },
+        let wnd = gui::WindowMain::new(
+            // instantiate the window manager
+            gui::WindowMainOpts {
+                title: "GORL - Drag text file into view to start...".to_owned(),
+                size: (900, 600),
+                style: gui::WindowMainOpts::default().style
+                    | co::WS::MINIMIZEBOX
+                    | co::WS::MAXIMIZEBOX
+                    | co::WS::SIZEBOX,
+                ..Default::default() // leave all other options as default
+            },
         );
 
-
-        let list_view = gui::ListView::new(&wnd, ListViewOpts {
-            position: (10, 10),
-            size: (880, 580),
-            columns: vec![("L".to_string(), 128), ("Text".to_string(), 3200)],
-            resize_behavior: (Horz::Resize, Vert::Resize),
-            list_view_ex_style: LVS_EX::DOUBLEBUFFER | LVS_EX::FULLROWSELECT,
-            list_view_style: LVS::REPORT | LVS::OWNERDATA | LVS::NOLABELWRAP,
-            ..Default::default()
-        });
-
+        let list_view = gui::ListView::new(
+            &wnd,
+            ListViewOpts {
+                position: (10, 10),
+                size: (880, 580),
+                columns: vec![("L".to_string(), 128), ("Text".to_string(), 3200)],
+                resize_behavior: (Horz::Resize, Vert::Resize),
+                list_view_ex_style: LVS_EX::DOUBLEBUFFER | LVS_EX::FULLROWSELECT,
+                list_view_style: LVS::REPORT | LVS::OWNERDATA | LVS::NOLABELWRAP,
+                ..Default::default()
+            },
+        );
 
         let search_window = SearchWindow::new(&wnd);
-        let mut new_self = Self { wnd, list_view, view, search_window };
+        let mut new_self = Self {
+            wnd,
+            list_view,
+            view,
+            search_window,
+        };
         new_self.events(); // attach our events
         new_self
     }
@@ -85,7 +94,6 @@ impl GorlMainWindow {
     }
 
     fn events(&mut self) {
-
         self.wnd.on().wm_create({
             let myself = self.clone();
             move |_msg| {
@@ -109,10 +117,13 @@ impl GorlMainWindow {
                         settings.font.name.as_str(),
                     )?;
 
-                    myself.list_view.hwnd().SendMessage(SetFont {
-                        hfont: font.leak(),
-                        redraw: true,
-                    }.as_generic_wm());
+                    myself.list_view.hwnd().SendMessage(
+                        SetFont {
+                            hfont: font.leak(),
+                            redraw: true,
+                        }
+                        .as_generic_wm(),
+                    );
                 }
                 Ok(0)
             }
@@ -130,9 +141,16 @@ impl GorlMainWindow {
                                     {
                                         *myself.view.write().unwrap() = Some(view);
                                     }
-                                    myself.list_view.items().set_count((myself.view.read().unwrap().as_ref().unwrap().line_count() - 1) as u32, None);
+                                    myself.list_view.items().set_count(
+                                        (myself.view.read().unwrap().as_ref().unwrap().line_count()
+                                            - 1) as u32,
+                                        None,
+                                    );
                                     myself.wnd.set_text(format!("GORL - {f}").as_str());
-                                    info!("set {f}. lines = {}", myself.view.read().unwrap().as_ref().unwrap().line_count());
+                                    info!(
+                                        "set {f}. lines = {}",
+                                        myself.view.read().unwrap().as_ref().unwrap().line_count()
+                                    );
                                     myself.search_window.set_file(&f);
                                 }
                                 Err(e) => {
@@ -153,36 +171,39 @@ impl GorlMainWindow {
                     return Ok(());
                 }
 
-                if info.item.mask.has(co::LVIF::TEXT) { // is this a text request?
+                if info.item.mask.has(co::LVIF::TEXT) {
+                    // is this a text request?
                     //println!("iItem={}; iSubItem={}; cColumns={};", info.item.iItem, info.item.iSubItem,info.item.cColumns);
                     let index = info.item.iItem as usize;
                     if info.item.iSubItem == 0 {
                         let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer
                         let out_slice = unsafe { std::slice::from_raw_parts_mut(ptr, cch as _) };
-                        out_slice.iter_mut()
+                        out_slice
+                            .iter_mut()
                             .zip(WString::from_str(format!("{}", index + 1)).as_slice())
                             .for_each(|(dest, src)| *dest = *src); // copy from our string to their buffer
                     } else {
-                        let line_text =
-                            if let Ok(mut lock_res) = myself.view.write() {
-                                if let Some(view_ref) = lock_res.as_mut() {
-                                    Ok(view_ref.get_line(index as u64))
-                                } else {
-                                    Err("Could not get lock view ref mutably INNER")
-                                }
+                        let line_text = if let Ok(mut lock_res) = myself.view.write() {
+                            if let Some(view_ref) = lock_res.as_mut() {
+                                Ok(view_ref.get_line(index as u64))
                             } else {
-                                Err("Could not get lock view ref mutably OUTER")
-                            };
+                                Err("Could not get lock view ref mutably INNER")
+                            }
+                        } else {
+                            Err("Could not get lock view ref mutably OUTER")
+                        };
 
                         match line_text {
                             Ok(Ok(text)) => {
                                 let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer
-                                let out_slice = unsafe { std::slice::from_raw_parts_mut(ptr, cch as _) };
-                                out_slice.iter_mut()
+                                let out_slice =
+                                    unsafe { std::slice::from_raw_parts_mut(ptr, cch as _) };
+                                out_slice
+                                    .iter_mut()
                                     .zip(WString::from_str(text.as_str()).as_slice())
                                     .for_each(|(dest, src)| *dest = *src); // copy from our string to their buffer
                             }
-                            r => error!("ERROR getting line: {:?}", r)
+                            r => error!("ERROR getting line: {:?}", r),
                         };
                     }
                 }
@@ -196,7 +217,6 @@ impl GorlMainWindow {
         });
     }
 }
-
 
 #[derive(Debug, Copy, Clone)]
 struct LastBound {
@@ -250,7 +270,8 @@ impl LineBasedFileView {
     pub fn get_line(&mut self, index: u64) -> Result<String, String> {
         if let Some(last_bounds) = &self.last_bounds {
             if last_bounds.left <= index && index < last_bounds.right {
-                return if let Some(line) = self.line_cache.get((index - last_bounds.left) as usize) {
+                return if let Some(line) = self.line_cache.get((index - last_bounds.left) as usize)
+                {
                     Ok(line.clone())
                 } else {
                     Err(format!("ERROR READING LINE {index} with ERR: NOT FOUND"))
@@ -266,10 +287,8 @@ impl LineBasedFileView {
             0
         };
         match self.cache_lines(left..=u64::min(index + def_cache_range, self.lines.len() as u64)) {
-            Ok(_) => { self.get_line(index) }
-            Err(err) => {
-                Err(format!("ERROR READING LINE {index} with ERR: {err}"))
-            }
+            Ok(_) => self.get_line(index),
+            Err(err) => Err(format!("ERROR READING LINE {index} with ERR: {err}")),
         }
     }
 
@@ -277,22 +296,25 @@ impl LineBasedFileView {
         let left = match r.start_bound() {
             Bound::Included(i) => *i,
             Bound::Excluded(i) => *i + 1,
-            Bound::Unbounded => 0
+            Bound::Unbounded => 0,
         };
 
         let right = match r.end_bound() {
             Bound::Included(i) => *i,
             Bound::Excluded(i) => *i - 1,
-            Bound::Unbounded => (self.lines.len() - 1) as u64
+            Bound::Unbounded => (self.lines.len() - 1) as u64,
         };
 
-        let left_offset = *self.lines.get(left as usize).unwrap_or_else(|| self.lines.first().unwrap_or(&0));
-        let right_offset = *self.lines.get(right as usize).unwrap_or_else(|| self.lines.last().unwrap_or(&0));
+        let left_offset = *self
+            .lines
+            .get(left as usize)
+            .unwrap_or_else(|| self.lines.first().unwrap_or(&0));
+        let right_offset = *self
+            .lines
+            .get(right as usize)
+            .unwrap_or_else(|| self.lines.last().unwrap_or(&0));
 
-        self.last_bounds = Some(LastBound {
-            left,
-            right,
-        });
+        self.last_bounds = Some(LastBound { left, right });
 
         self.reader.seek(SeekFrom::Start(left_offset))?;
 
@@ -309,5 +331,3 @@ impl LineBasedFileView {
         Ok(())
     }
 }
-
-

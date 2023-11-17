@@ -29,9 +29,9 @@ pub(crate) struct Settings {
 pub(crate) const DEF_CACHE_RANGE: u64 = 500;
 impl Default for Settings {
     fn default() -> Self {
-        Self{
+        Self {
             cache_size: DEF_CACHE_RANGE,
-            font: FontSettings::default()
+            font: FontSettings::default(),
         }
     }
 }
