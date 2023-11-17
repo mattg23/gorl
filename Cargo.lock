@@ -177,8 +177,10 @@ dependencies = [
  "anyhow",
  "config",
  "env_logger",
+ "lazy_static",
  "log",
  "serde",
+ "serde_derive",
  "winsafe",
 ]
 

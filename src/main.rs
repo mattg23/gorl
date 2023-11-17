@@ -1,14 +1,22 @@
+mod settings;
+
 use std::collections::Bound;
 use std::fs::{File};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::ops::{RangeBounds};
 use std::rc::Rc;
 use std::sync::RwLock;
+use lazy_static::lazy_static;
+use log::{debug, error, info};
 
 use winsafe::{prelude::*, gui, co, WString, HFONT, SIZE};
 use winsafe::co::{CHARSET, CLIP, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY};
 use winsafe::gui::{Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
+
+lazy_static! {
+    static ref SETTINGS: RwLock<settings::Settings> = RwLock::new(settings::Settings::new());
+}
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
@@ -16,10 +24,8 @@ fn main() -> anyhow::Result<()> {
     let my = GorlMainWindow::new(Rc::new(RwLock::new(None))); // instantiate our main window
 
     if let Err(e) = my.wnd.run_main(None) { // ... and run it
-        eprintln!("{}", e);
+        error!("{}", e);
     }
-
-    //view.cache_lines(5000..=6000);
 
     Ok(())
 }
@@ -56,15 +62,6 @@ impl GorlMainWindow {
             ..Default::default()
         });
 
-        // for (i, l) in lines.iter().enumerate() {
-        //     //format!("{i}"), l.to_string()
-        //     list_view.items().add(&[
-        //         "1",
-        //         "2"
-        //     ], None);
-        // }
-
-
         let mut new_self = Self { wnd, list_view, view };
         new_self.events(); // attach our events
         new_self
@@ -76,43 +73,34 @@ impl GorlMainWindow {
     }
 
     fn events(&mut self) {
-        //let wnd = self.wnd.clone(); // clone so it can be passed into the closure
-
-        self.wnd.on().wm_create({
+              self.wnd.on().wm_create({
             let myself = self.clone();
             move |_msg| {
-                // for (i, l) in myself.lines.iter().enumerate() {
-                //     //f
-                //     let item  = myself.list_view.items().add(&[
-                //         format!("{i}"), l.to_string()
-                //     ], None);
-                // }
+                info!("WM_CREATE");
                 myself.wnd.hwnd().DragAcceptFiles(true);
 
-                //myself.list_view.hwnd().
+                if let Ok(settings) = SETTINGS.read() {
+                    let mut font = HFONT::CreateFont(
+                        SIZE::new(settings.font.size, 0),
+                        0,
+                        0,
+                        FW::MEDIUM,
+                        settings.font.italic,
+                        false,
+                        false,
+                        CHARSET::DEFAULT,
+                        OUT_PRECIS::DEFAULT,
+                        CLIP::DEFAULT_PRECIS,
+                        QUALITY::DEFAULT,
+                        PITCH::FIXED,
+                        settings.font.name.as_str(),
+                    )?;
 
-                let mut font = HFONT::CreateFont(
-                    SIZE::new(8, 0),
-                    0,
-                    0,
-                    FW::MEDIUM,
-                    false,
-                    false,
-                    false,
-                    CHARSET::DEFAULT,
-                    OUT_PRECIS::DEFAULT,
-                    CLIP::DEFAULT_PRECIS,
-                    QUALITY::DEFAULT,
-                    PITCH::FIXED,
-                    "Comic Sans MS",
-                )?;
-
-                myself.list_view.hwnd().SendMessage(SetFont {
-                    hfont: font.leak(),
-                    redraw: true,
-                }.as_generic_wm());
-
-
+                    myself.list_view.hwnd().SendMessage(SetFont {
+                        hfont: font.leak(),
+                        redraw: true,
+                    }.as_generic_wm());
+                }
                 Ok(0)
             }
         });
@@ -122,7 +110,7 @@ impl GorlMainWindow {
             move |mut msg| {
                 if let Ok(itr) = msg.hdrop.DragQueryFile() {
                     for f in itr {
-                        println!("{:?}", f);
+                        info!("Dropped FILE={:?}", f);
                         if let Ok(f) = f {
                             match (myself).open_file(&f) {
                                 Ok(view) => {
@@ -131,10 +119,10 @@ impl GorlMainWindow {
                                     }
                                     myself.list_view.items().set_count((myself.view.read().unwrap().as_ref().unwrap().line_count() - 1) as u32, None);
                                     myself.wnd.set_text(format!("GORL - {f}").as_str());
-                                    println!("set {f}. lines = {}", myself.view.read().unwrap().as_ref().unwrap().line_count());
+                                    info!("set {f}. lines = {}", myself.view.read().unwrap().as_ref().unwrap().line_count());
                                 }
                                 Err(e) => {
-                                    println!("could not open {f}. ERR={:?}", e)
+                                    error!("could not open {f}. ERR={:?}", e)
                                 }
                             }
                         }
@@ -172,7 +160,7 @@ impl GorlMainWindow {
                                 Err("Could not get lock view ref mutably OUTER")
                             };
 
-                        match line_text{
+                        match line_text {
                             Ok(Ok(text)) => {
                                 let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer
                                 let out_slice = unsafe { std::slice::from_raw_parts_mut(ptr, cch as _) };
@@ -180,7 +168,7 @@ impl GorlMainWindow {
                                     .zip(WString::from_str(text.as_str()).as_slice())
                                     .for_each(|(dest, src)| *dest = *src); // copy from our string to their buffer
                             }
-                            r => println!("ERROR getting line: {:?}", r)
+                            r => error!("ERROR getting line: {:?}", r)
                         };
                     }
                 }
@@ -208,6 +196,7 @@ pub struct LineBasedFileView {
     lines: Vec<u64>,
     line_cache: Vec<String>,
     last_bounds: Option<LastBound>,
+    def_cache_size: u64
 }
 
 impl LineBasedFileView {
@@ -215,7 +204,6 @@ impl LineBasedFileView {
         let file = File::open(&file_path)?;
         let mut reader = BufReader::new(file);
         let mut lines: Vec<u64> = vec![0];
-
 
         let mut str_buf = String::new();
         while let Ok(bytes_read) = reader.read_line(&mut str_buf) {
@@ -226,26 +214,18 @@ impl LineBasedFileView {
             lines.push(reader.stream_position().unwrap());
         }
 
-        // let mut buf: [u8; 1024] = [0x0; 1024];
-        // while let Ok(read) = reader.read(&mut buf) {
-        //     if read == 0 {
-        //         break;
-        //     }
-        //
-        //     reader.stream_position()
-        //
-        //     for (i, c) in buf[0..read].iter().enumerate() {
-        //         if *c == b'\n' {
-        //             lines.push(lines.last().unwrap_or(&0) + (i + 1) as u64)
-        //         }
-        //     }
-        // }
+        let def_cache_size = if let Ok(settings) =  SETTINGS.read() {
+            settings.cache_size
+        } else {
+            settings::DEF_CACHE_RANGE
+        };
 
         Ok(Self {
             lines,
             reader,
             line_cache: vec![],
             last_bounds: None,
+            def_cache_size
         })
     }
 
@@ -264,14 +244,14 @@ impl LineBasedFileView {
             }
         }
 
-        const DEF_CACHE_RANGE: u64 = 500;
+        let def_cache_range = self.def_cache_size;
 
-        let left = if index > DEF_CACHE_RANGE {
-            index - DEF_CACHE_RANGE
+        let left = if index > def_cache_range {
+            index - def_cache_range
         } else {
             0
         };
-        match self.cache_lines(left..=u64::min(index + DEF_CACHE_RANGE, self.lines.len() as u64)) {
+        match self.cache_lines(left..=u64::min(index + def_cache_range, self.lines.len() as u64)) {
             Ok(_) => { self.get_line(index) }
             Err(err) => {
                 Err(format!("ERROR READING LINE {index} with ERR: {err}"))
@@ -310,7 +290,7 @@ impl LineBasedFileView {
         let res = BufReader::new(buf.as_slice());
         self.line_cache = res.lines().map(|l| l.unwrap()).collect();
 
-        println!("LEFTOFFSET = {left_offset} || RIGHTOFFSET = {right_offset} || R.START = {:?} || R.END = {:?} || SELF.LASTBOUNDS = {:?} || CACHELEN = {}", r.start_bound(), r.end_bound(), &self.last_bounds, self.line_cache.len());
+        debug!("LEFTOFFSET = {left_offset} || RIGHTOFFSET = {right_offset} || R.START = {:?} || R.END = {:?} || SELF.LASTBOUNDS = {:?} || CACHELEN = {}", r.start_bound(), r.end_bound(), &self.last_bounds, self.line_cache.len());
 
         Ok(())
     }
