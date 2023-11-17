@@ -1,10 +1,12 @@
 mod settings;
+mod search;
 
 use std::collections::Bound;
 use std::fs::{File};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::ops::{RangeBounds};
 use std::rc::Rc;
+use std::sync::mpsc::Receiver;
 use std::sync::RwLock;
 use lazy_static::lazy_static;
 use log::{debug, error, info};
@@ -13,6 +15,7 @@ use winsafe::{prelude::*, gui, co, WString, HFONT, SIZE};
 use winsafe::co::{CHARSET, CLIP, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY};
 use winsafe::gui::{Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
+use crate::search::SearchWindow;
 
 lazy_static! {
     static ref SETTINGS: RwLock<settings::Settings> = RwLock::new(settings::Settings::new());
@@ -23,7 +26,8 @@ fn main() -> anyhow::Result<()> {
 
     let my = GorlMainWindow::new(Rc::new(RwLock::new(None))); // instantiate our main window
 
-    if let Err(e) = my.wnd.run_main(None) { // ... and run it
+    if let Err(e) = my.wnd.run_main(None) {
+        // ... and run it
         error!("{}", e);
     }
 
@@ -33,10 +37,9 @@ fn main() -> anyhow::Result<()> {
 #[derive(Clone)]
 pub struct GorlMainWindow {
     wnd: gui::WindowMain,
-    // responsible for managing the window
     list_view: gui::ListView,
-    // a button
     view: Rc<RwLock<Option<LineBasedFileView>>>,
+    search_window: SearchWindow,
 }
 
 impl GorlMainWindow {
@@ -62,7 +65,9 @@ impl GorlMainWindow {
             ..Default::default()
         });
 
-        let mut new_self = Self { wnd, list_view, view };
+
+        let search_window = SearchWindow::new(&wnd);
+        let mut new_self = Self { wnd, list_view, view, search_window };
         new_self.events(); // attach our events
         new_self
     }
@@ -72,8 +77,17 @@ impl GorlMainWindow {
         Ok(view)
     }
 
+    fn jump_to(&self, line: u64) {
+        debug!("MAIN WINDOW: RECEIVED SEARCH RESULT SELEDTED {line}");
+        let item = self.list_view.items().get(line as u32);
+        item.select(true);
+        item.ensure_visible();
+        item.focus();
+    }
+
     fn events(&mut self) {
-              self.wnd.on().wm_create({
+
+        self.wnd.on().wm_create({
             let myself = self.clone();
             move |_msg| {
                 info!("WM_CREATE");
@@ -120,6 +134,7 @@ impl GorlMainWindow {
                                     myself.list_view.items().set_count((myself.view.read().unwrap().as_ref().unwrap().line_count() - 1) as u32, None);
                                     myself.wnd.set_text(format!("GORL - {f}").as_str());
                                     info!("set {f}. lines = {}", myself.view.read().unwrap().as_ref().unwrap().line_count());
+                                    myself.search_window.set_file(&f);
                                 }
                                 Err(e) => {
                                     error!("could not open {f}. ERR={:?}", e)
@@ -196,7 +211,7 @@ pub struct LineBasedFileView {
     lines: Vec<u64>,
     line_cache: Vec<String>,
     last_bounds: Option<LastBound>,
-    def_cache_size: u64
+    def_cache_size: u64,
 }
 
 impl LineBasedFileView {
@@ -214,7 +229,7 @@ impl LineBasedFileView {
             lines.push(reader.stream_position().unwrap());
         }
 
-        let def_cache_size = if let Ok(settings) =  SETTINGS.read() {
+        let def_cache_size = if let Ok(settings) = SETTINGS.read() {
             settings.cache_size
         } else {
             settings::DEF_CACHE_RANGE
@@ -225,7 +240,7 @@ impl LineBasedFileView {
             reader,
             line_cache: vec![],
             last_bounds: None,
-            def_cache_size
+            def_cache_size,
         })
     }
 
