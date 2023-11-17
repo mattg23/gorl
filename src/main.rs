@@ -1,13 +1,12 @@
 use std::collections::Bound;
 use std::fs::{File};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
-use std::ops::{Deref, RangeBounds};
+use std::ops::{RangeBounds};
 use std::rc::Rc;
 use std::sync::RwLock;
 
 use winsafe::{prelude::*, gui, co, WString, HFONT, SIZE};
 use winsafe::co::{CHARSET, CLIP, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY};
-use winsafe::guard::DeleteObjectGuard;
 use winsafe::gui::{Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
 
@@ -246,10 +245,10 @@ impl LineBasedFileView {
     pub fn get_line(&mut self, index: u64) -> Result<String, String> {
         if let Some(last_bounds) = &self.last_bounds {
             if last_bounds.left <= index && index < last_bounds.right {
-                if let Some(line) = self.line_cache.get((index - last_bounds.left) as usize) {
-                    return Ok(line.clone());
+                return if let Some(line) = self.line_cache.get((index - last_bounds.left) as usize) {
+                    Ok(line.clone())
                 } else {
-                    return Err(format!("ERROR READING LINE {index} with ERR: NOT FOUND"));
+                    Err(format!("ERROR READING LINE {index} with ERR: NOT FOUND"))
                 }
             }
         }
@@ -296,7 +295,7 @@ impl LineBasedFileView {
         let mut buf = Vec::with_capacity(buf_length);
         buf.resize(buf_length, 0);
 
-        let bytes_read = self.reader.read_exact(buf.as_mut_slice())?;
+        let _ = self.reader.read_exact(buf.as_mut_slice())?;
 
         let res = BufReader::new(buf.as_slice());
         self.line_cache = res.lines().map(|l| l.unwrap()).collect();
