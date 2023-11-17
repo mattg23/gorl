@@ -16,7 +16,7 @@ fn main() -> anyhow::Result<()> {
 
     let view = LineBasedFileView::new(file_path.to_string())?;
 
-    let my = GorlMainWindow::new(Rc::new(RwLock::new(view))); // instantiate our main window
+    let my = GorlMainWindow::new(Rc::new(RwLock::new(None))); // instantiate our main window
 
     if let Err(e) = my.wnd.run_main(None) { // ... and run it
         eprintln!("{}", e);
@@ -33,14 +33,14 @@ pub struct GorlMainWindow {
     // responsible for managing the window
     list_view: gui::ListView,
     // a button
-    view: Rc<RwLock<LineBasedFileView>>,
+    view: Rc<RwLock<Option<LineBasedFileView>>>,
 }
 
 impl GorlMainWindow {
-    pub fn new(view: Rc<RwLock<LineBasedFileView>>) -> Self {
+    pub fn new(view: Rc<RwLock<Option<LineBasedFileView>>>) -> Self {
         let wnd = gui::WindowMain::new( // instantiate the window manager
                                         gui::WindowMainOpts {
-                                            title: "GORL".to_owned(),
+                                            title: "GORL - Drag text file into view to start...".to_owned(),
                                             size: (900, 600),
                                             style: gui::WindowMainOpts::default().style |
                                                 co::WS::MINIMIZEBOX | co::WS::MAXIMIZEBOX | co::WS::SIZEBOX,
@@ -90,8 +90,6 @@ impl GorlMainWindow {
                 //         format!("{i}"), l.to_string()
                 //     ], None);
                 // }
-
-                myself.list_view.items().set_count((myself.view.read().unwrap().line_count() - 1) as u32, None);
                 myself.wnd.hwnd().DragAcceptFiles(true);
 
                 //myself.list_view.hwnd().
@@ -109,12 +107,12 @@ impl GorlMainWindow {
                     CLIP::DEFAULT_PRECIS,
                     QUALITY::DEFAULT,
                     PITCH::FIXED,
-                    "Comic Sans MS"
+                    "Comic Sans MS",
                 )?;
 
                 myself.list_view.hwnd().SendMessage(SetFont {
                     hfont: font.leak(),
-                    redraw: true
+                    redraw: true,
                 }.as_generic_wm());
 
 
@@ -132,11 +130,11 @@ impl GorlMainWindow {
                             match (myself).open_file(&f) {
                                 Ok(view) => {
                                     {
-                                        *myself.view.write().unwrap() = view;
+                                        *myself.view.write().unwrap() = Some(view);
                                     }
-                                    myself.list_view.items().set_count((myself.view.read().unwrap().line_count() - 1) as u32, None);
-                                    myself.wnd.set_text(f.as_str());
-                                    println!("set {f}. lines = {}", myself.view.read().unwrap().line_count());
+                                    myself.list_view.items().set_count((myself.view.read().unwrap().as_ref().unwrap().line_count() - 1) as u32, None);
+                                    myself.wnd.set_text(format!("GORL - {f}").as_str());
+                                    println!("set {f}. lines = {}", myself.view.read().unwrap().as_ref().unwrap().line_count());
                                 }
                                 Err(e) => {
                                     println!("could not open {f}. ERR={:?}", e)
@@ -152,23 +150,41 @@ impl GorlMainWindow {
         self.list_view.on().lvn_get_disp_info({
             let myself = self.clone();
             move |info| {
+                if myself.view.read().is_ok_and(|o| o.is_none()) {
+                    return Ok(());
+                }
+
                 if info.item.mask.has(co::LVIF::TEXT) { // is this a text request?
-                    //println!("{} {}", info.item.iItem, info.item.cColumns);
+                    //println!("iItem={}; iSubItem={}; cColumns={};", info.item.iItem, info.item.iSubItem,info.item.cColumns);
                     let index = info.item.iItem as usize;
-                    if info.item.cColumns == 0 {
+                    if info.item.iSubItem == 0 {
                         let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer
                         let out_slice = unsafe { std::slice::from_raw_parts_mut(ptr, cch as _) };
                         out_slice.iter_mut()
                             .zip(WString::from_str(format!("{}", index + 1)).as_slice())
                             .for_each(|(dest, src)| *dest = *src); // copy from our string to their buffer
                     } else {
-                        let mut view_ref = myself.view.write().unwrap();
-                        let str_ref = view_ref.get_line(index as u64); // string for the requested item
-                        let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer
-                        let out_slice = unsafe { std::slice::from_raw_parts_mut(ptr, cch as _) };
-                        out_slice.iter_mut()
-                            .zip(WString::from_str(str_ref.unwrap_or_else(|e| e)).as_slice())
-                            .for_each(|(dest, src)| *dest = *src); // copy from our string to their buffer
+                        let line_text =
+                            if let Ok(mut lock_res) = myself.view.write() {
+                                if let Some(view_ref) = lock_res.as_mut() {
+                                    Ok(view_ref.get_line(index as u64))
+                                } else {
+                                    Err("Could not get lock view ref mutably INNER")
+                                }
+                            } else {
+                                Err("Could not get lock view ref mutably OUTER")
+                            };
+
+                        match line_text{
+                            Ok(Ok(text)) => {
+                                let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer
+                                let out_slice = unsafe { std::slice::from_raw_parts_mut(ptr, cch as _) };
+                                out_slice.iter_mut()
+                                    .zip(WString::from_str(text.as_str()).as_slice())
+                                    .for_each(|(dest, src)| *dest = *src); // copy from our string to their buffer
+                            }
+                            r => println!("ERROR getting line: {:?}", r)
+                        };
                     }
                 }
 
@@ -249,7 +265,7 @@ impl LineBasedFileView {
                     Ok(line.clone())
                 } else {
                     Err(format!("ERROR READING LINE {index} with ERR: NOT FOUND"))
-                }
+                };
             }
         }
 

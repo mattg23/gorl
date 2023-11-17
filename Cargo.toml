@@ -10,3 +10,5 @@ anyhow = "1.0.75"
 env_logger = "0.10.1"
 winsafe = { version = "0.0.18", features = ["gui", "dwm"] }
 log = "0.4.20"
+config = "0.13.3"
+serde = { version = "1.0.192", features = ["derive"] }
