@@ -12,9 +12,6 @@ use winsafe::msg::wm::SetFont;
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
-    let file_path = "D:\\Dump\\opc_log\\ops_logs_23Mar23\\Service.20230322.00.log";
-
-    let view = LineBasedFileView::new(file_path.to_string())?;
 
     let my = GorlMainWindow::new(Rc::new(RwLock::new(None))); // instantiate our main window
 
@@ -73,8 +70,8 @@ impl GorlMainWindow {
         new_self
     }
 
-    fn open_file(&self, path: &String) -> anyhow::Result<LineBasedFileView> {
-        let view = LineBasedFileView::new(path.clone())?;
+    fn open_file(&self, path: &str) -> anyhow::Result<LineBasedFileView> {
+        let view = LineBasedFileView::new(path.to_owned())?;
         Ok(view)
     }
 
@@ -83,7 +80,7 @@ impl GorlMainWindow {
 
         self.wnd.on().wm_create({
             let myself = self.clone();
-            move |msg| {
+            move |_msg| {
                 // for (i, l) in myself.lines.iter().enumerate() {
                 //     //f
                 //     let item  = myself.list_view.items().add(&[
@@ -121,7 +118,7 @@ impl GorlMainWindow {
         });
 
         self.wnd.on().wm_drop_files({
-            let mut myself = self.clone();
+            let myself = self.clone();
             move |mut msg| {
                 if let Ok(itr) = msg.hdrop.DragQueryFile() {
                     for f in itr {
@@ -191,7 +188,7 @@ impl GorlMainWindow {
                 Ok(())
             }
         });
-        self.list_view.on().lvn_od_cache_hint(|f| {
+        self.list_view.on().lvn_od_cache_hint(|_f| {
             //println!("lvn_od_cache_hint from {} to {}", f.iFrom, f.iTo);
             Ok(())
         });
@@ -207,7 +204,6 @@ struct LastBound {
 
 #[derive(Debug)]
 pub struct LineBasedFileView {
-    file_path: String,
     reader: BufReader<File>,
     lines: Vec<u64>,
     line_cache: Vec<String>,
@@ -247,7 +243,6 @@ impl LineBasedFileView {
 
         Ok(Self {
             lines,
-            file_path,
             reader,
             line_cache: vec![],
             last_bounds: None,
@@ -308,10 +303,9 @@ impl LineBasedFileView {
         self.reader.seek(SeekFrom::Start(left_offset))?;
 
         let buf_length = (right_offset - left_offset) as usize;
-        let mut buf = Vec::with_capacity(buf_length);
-        buf.resize(buf_length, 0);
+        let mut buf = vec![0; buf_length];
 
-        let _ = self.reader.read_exact(buf.as_mut_slice())?;
+        self.reader.read_exact(buf.as_mut_slice())?;
 
         let res = BufReader::new(buf.as_slice());
         self.line_cache = res.lines().map(|l| l.unwrap()).collect();
