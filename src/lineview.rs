@@ -53,12 +53,12 @@ impl LineBasedFileView {
             if bytes_read == 0 {
                 break;
             }
-            chunk.lst_line = chunk.lst_line + 1;
+            chunk.lst_line += 1;
             chunk.right_offset = reader.stream_position().unwrap();
 
             if chunk.lst_line % chunk_size == 0 {
                 // get current stream pos & push
-                lines.push(chunk.clone());
+                lines.push(chunk);
 
                 // reset chunk for next page
                 chunk.left_offset = chunk.right_offset;

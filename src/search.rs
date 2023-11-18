@@ -36,6 +36,8 @@ fn search_in_file(query: &str, path: &str) -> anyhow::Result<Vec<(u64, String)>>
     Ok(res)
 }
 
+type SearchResults = Rc<RwLock<Option<Vec<(u64, String)>>>>;
+
 #[derive(Clone)]
 pub(crate) struct SearchWindow {
     wnd: gui::WindowModeless,
@@ -44,7 +46,7 @@ pub(crate) struct SearchWindow {
     search_button: gui::Button,
     current_file: Rc<RwLock<Option<String>>>,
     transmitter: Sender<MwMessage>,
-    current_search_results: Rc<RwLock<Option<Vec<(u64, String)>>>>,
+    current_search_results: SearchResults,
 }
 
 impl SearchWindow {
@@ -208,7 +210,7 @@ impl SearchWindow {
                                     Err(format!("Line not found with index {index} "))
                                 }
                             } else {
-                                Err(format!("No search results available"))
+                                Err("No search results available".to_string())
                             }
                         }
                         Err(error) => {
