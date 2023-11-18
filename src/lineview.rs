@@ -83,6 +83,10 @@ impl LineBasedFileView {
         })
     }
 
+    pub fn page_count(&self) -> usize {
+        self.lines.len()
+    }
+
     pub fn line_count(&self) -> u64 {
         if let Some(page) = self.lines.last() {
             page.lst_line

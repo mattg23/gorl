@@ -131,7 +131,7 @@ impl GorlMainWindow {
         let now = std::time::SystemTime::now();
 
         if let Ok(elapsed) = now.duration_since(bf) {
-            info!("Indexed {path} in {}s", elapsed.as_secs_f64());
+            info!("Indexed {} chunks from {path} in {}s", view.page_count(), elapsed.as_secs_f64());
         }
 
         Ok(view)
