@@ -6,7 +6,7 @@ use log::{debug, error, info};
 use std::rc::Rc;
 use std::sync::{RwLock};
 use flume::{Sender};
-use winsafe::co::{CHARSET, CLIP, COLOR, ES, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, WS};
+use winsafe::co::{BS, CHARSET, CLIP, COLOR, ES, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, VK, WS};
 use winsafe::gui::{Brush, Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
 use winsafe::{co, gui, prelude::*, HFONT, SIZE, WString};
@@ -57,9 +57,9 @@ impl SearchWindow {
                 class_bg_brush: Brush::Color(COLOR::BACKGROUND),
                 title: "GORL - Search".to_string(),
                 style: gui::WindowMainOpts::default().style
-                    | co::WS::MINIMIZEBOX
-                    | co::WS::MAXIMIZEBOX
-                    | co::WS::SIZEBOX
+                    | WS::MINIMIZEBOX
+                    | WS::MAXIMIZEBOX
+                    | WS::SIZEBOX
                     | WS::POPUPWINDOW,
                 size: (600, 350),
                 ..Default::default() // leave all other options as default
@@ -73,6 +73,7 @@ impl SearchWindow {
                 width: 150,
                 text: " 🔍 Search".to_owned(),
                 position: (420, 10),
+                button_style: BS::DEFPUSHBUTTON | BS::PUSHBUTTON,
                 resize_behavior: (Horz::Repos, Vert::None),
                 ..Default::default()
             },
@@ -85,7 +86,7 @@ impl SearchWindow {
                 position: (10, 10),
                 width: 400,
                 height: 24,
-                edit_style: ES::LEFT,
+                edit_style: ES::LEFT | ES::NOHIDESEL | ES::AUTOHSCROLL,
                 resize_behavior: (Horz::Resize, Vert::None),
                 ..Default::default()
             },
@@ -123,6 +124,23 @@ impl SearchWindow {
         info!("SEARCHWINDOW: set file to {new_path}");
     }
 
+    extern "system" fn handle_edit_text_box(h_wnd: winsafe::HWND, u_msg: co::WM, w_param: usize, l_param: isize, _u_id_subclass: usize, dw_ref_data: usize) -> isize {
+
+        if u_msg == co::WM::KEYUP {
+            unsafe {
+                if VK::from_raw(w_param as u16) == VK::RETURN {
+                    debug!("handle_edit_text_box::SubClassProcedure  {}, w_param={}, lParama={}",u_msg, VK::RETURN, l_param);
+                    let ptr = dw_ref_data as *const Self;
+                    (*ptr).search_button.trigger_click();
+                    (*ptr).search_query_txt_box.focus();
+                }
+            }
+
+        }
+        let wm_any = winsafe::msg::WndMsg::new(u_msg, w_param, l_param);
+        h_wnd.DefSubclassProc(wm_any)
+    }
+
     fn events(&mut self) {
         self.wnd.on().wm_create({
             let myself = self.clone();
@@ -154,8 +172,29 @@ impl SearchWindow {
                         }
                             .as_generic_wm(),
                     );
+
+
+                    unsafe { let _ = myself.search_query_txt_box.hwnd().SetWindowSubclass(Self::handle_edit_text_box, 0, &myself as *const _ as _); }
                 }
                 Ok(0)
+            }
+        });
+
+
+        self.search_query_txt_box.on().en_update({
+            let myself = self.clone();
+            move ||{
+                let text = myself.search_query_txt_box.text();
+                const ASCII_DELETE : char = '\u{7f}';
+                if text.ends_with(ASCII_DELETE) { // ends in ASCII 127 == DELETE character
+
+                    let (i,_) = text.char_indices().rfind(|(_,c)| c.ne(&ASCII_DELETE) && c.is_whitespace()).unwrap_or((0, 's'));
+
+                    let next = &text[0..i];
+                    myself.search_query_txt_box.set_text(next);
+                    myself.search_query_txt_box.set_selection(i as i32, i as i32);
+                }
+                Ok(())
             }
         });
 
