@@ -25,21 +25,29 @@ static CHECK_INBOX: co::WM = unsafe { co::WM::from_raw(0x1234) };
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let (tx, rx) = flume::unbounded();
-
-    let _rt = tokio::runtime::Builder::new_multi_thread()
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .build()?;
+        .max_blocking_threads(8192) // basically the limit of log file one can open
+        .build()
+        .unwrap();
 
-    let my = GorlMainWindow::new(rx.clone(), tx.clone()); // instantiate our main window
+        let fst = rt.spawn_blocking(|| {
+            let (tx, rx) = flume::unbounded();
+            let my = GorlMainWindow::new(rx.clone(), tx.clone()); // instantiate our main window
+            if let Err(e) = my.wnd.run_main(None) {
+                // ... and run it
+                error!("{}", e);
+            }
+        });
 
-    if let Err(e) = my.wnd.run_main(None) {
-        // ... and run it
-        error!("{}", e);
-    }
+    rt.block_on(async move {
+       let _ = fst.await;
+    });
 
     Ok(())
 }
+
+
 
 #[derive(Copy, Clone, Debug)]
 pub(crate) enum MwMessage {
@@ -58,7 +66,6 @@ pub(crate) struct GorlMainWindow {
 
 impl GorlMainWindow {
     pub fn new(inbox: Receiver<MwMessage>, transmitter: Sender<MwMessage>) -> Self {
-
         info!("Creating Main Window. Settings = {:?}", SETTINGS.read());
 
         let wnd = gui::WindowMain::new(
@@ -66,6 +73,7 @@ impl GorlMainWindow {
             gui::WindowMainOpts {
                 title: "GORL - Drag text file into view to start...".to_owned(),
                 size: (900, 600),
+                class_name: "GorlMainWindow".to_owned(),
                 style: gui::WindowMainOpts::default().style
                     | co::WS::MINIMIZEBOX
                     | co::WS::MAXIMIZEBOX
