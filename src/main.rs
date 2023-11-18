@@ -24,7 +24,6 @@ lazy_static! {
 static CHECK_INBOX: co::WM = unsafe { co::WM::from_raw(0x1234) };
 
 
-
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
@@ -102,7 +101,6 @@ impl GorlMainWindow {
         let tx_copy = transmitter.clone();
 
         wnd.spawn_new_thread(move || {
-
             debug!("Started Mainwindow CHECK_INBOX thread");
 
             while let Ok(msg) = rx_copy.recv() {
@@ -117,7 +115,6 @@ impl GorlMainWindow {
                         error!("Sending  CHECK_INBOX to MainWindow: tx_copy.send(msg): {err}")
                     }
                 };
-
             }
 
             Ok(())
@@ -128,7 +125,14 @@ impl GorlMainWindow {
     }
 
     fn open_file(&self, path: &str) -> anyhow::Result<LineBasedFileView> {
+        let bf = std::time::SystemTime::now();
         let view = LineBasedFileView::new(path.to_owned())?;
+        let now = std::time::SystemTime::now();
+
+        if let Ok(elapsed) = now.duration_since(bf) {
+            info!("Indexed {path} in {}s", elapsed.as_secs_f64());
+        }
+
         Ok(view)
     }
 
@@ -143,7 +147,6 @@ impl GorlMainWindow {
         item.select(true);
 
         self.wnd.hwnd().SetForegroundWindow();
-
     }
 
     fn handle(&self, msg: MwMessage) {
@@ -157,17 +160,15 @@ impl GorlMainWindow {
     }
 
 
-
     fn events(&mut self) {
         self.wnd.on().wm(CHECK_INBOX, {
             let myself = self.clone();
-            move |_|{
-
+            move |_| {
                 debug!("MainWindow: RECEIVED CHECK_INBOX");
 
                 match myself.inbox.try_recv() {
                     Ok(msg) => myself.handle(msg),
-                    Err(err) =>error!("MainWindow: ERROR getting MwMessage from inbox: {err}")
+                    Err(err) => error!("MainWindow: ERROR getting MwMessage from inbox: {err}")
                 };
                 Ok(Some(0))
             }
@@ -222,8 +223,7 @@ impl GorlMainWindow {
                                         *myself.view.write().unwrap() = Some(view);
                                     }
                                     myself.list_view.items().set_count(
-                                        (myself.view.read().unwrap().as_ref().unwrap().line_count()
-                                            - 1) as u32,
+                                        (myself.view.read().unwrap().as_ref().unwrap().line_count().checked_sub(1).unwrap_or_default()) as u32,
                                         None,
                                     );
                                     myself.wnd.set_text(format!("GORL - {f}").as_str());
@@ -304,10 +304,18 @@ struct LastBound {
     pub right: u64,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct LineChunk {
+    fst_line: u64,
+    lst_line: u64,
+    left_offset: u64,
+    right_offset: u64,
+}
+
 #[derive(Debug)]
 pub struct LineBasedFileView {
     reader: BufReader<File>,
-    lines: Vec<u64>,
+    lines: Vec<LineChunk>,
     line_cache: Vec<String>,
     last_bounds: Option<LastBound>,
     def_cache_size: u64,
@@ -317,22 +325,48 @@ impl LineBasedFileView {
     pub fn new(file_path: String) -> anyhow::Result<Self> {
         let file = File::open(&file_path)?;
         let mut reader = BufReader::new(file);
-        let mut lines: Vec<u64> = vec![0];
+        let mut lines: Vec<LineChunk> = vec![];
 
-        let mut str_buf = String::new();
-        while let Ok(bytes_read) = reader.read_line(&mut str_buf) {
-            if bytes_read == 0 {
-                break;
-            }
-
-            lines.push(reader.stream_position().unwrap());
-        }
+        let mut chunk: LineChunk = LineChunk {
+            lst_line: 0,
+            fst_line: 0,
+            right_offset: 0,
+            left_offset: 0,
+        };
 
         let def_cache_size = if let Ok(settings) = SETTINGS.read() {
             settings.cache_size
         } else {
             settings::DEF_CACHE_RANGE
         };
+
+        let chunk_size = def_cache_size;
+
+        let mut str_buf = String::new();
+        while let Ok(bytes_read) = reader.read_line(&mut str_buf) {
+            if bytes_read == 0 {
+                break;
+            }
+            chunk.lst_line = chunk.lst_line + 1;
+            chunk.right_offset = reader.stream_position().unwrap();
+
+            if chunk.lst_line % chunk_size == 0 {
+                // get current stream pos & push
+                lines.push(chunk.clone());
+
+                // reset chunk for next page
+                chunk.left_offset = chunk.right_offset;
+                chunk.fst_line = chunk.lst_line;
+            }
+        }
+
+        if let Some(last) = lines.last() {
+            if last.ne(&chunk) {
+                lines.push(chunk);
+            }
+        } else { // file is small enough to fit into one page
+            lines.push(chunk);
+        }
 
         Ok(Self {
             lines,
@@ -344,7 +378,11 @@ impl LineBasedFileView {
     }
 
     pub fn line_count(&self) -> u64 {
-        self.lines.len() as u64
+        if let Some(page) = self.lines.last() {
+            page.lst_line
+        } else {
+            0
+        }
     }
 
     pub fn get_line(&mut self, index: u64) -> Result<String, String> {
@@ -366,7 +404,7 @@ impl LineBasedFileView {
         } else {
             0
         };
-        match self.cache_lines(left..=u64::min(index + def_cache_range, self.lines.len() as u64)) {
+        match self.cache_lines(left..=u64::min(index + def_cache_range, self.line_count())) {
             Ok(_) => self.get_line(index),
             Err(err) => Err(format!("ERROR READING LINE {index} with ERR: {err}")),
         }
@@ -385,20 +423,30 @@ impl LineBasedFileView {
             Bound::Unbounded => (self.lines.len() - 1) as u64,
         };
 
-        let left_offset = *self
-            .lines
-            .get(left as usize)
-            .unwrap_or_else(|| self.lines.first().unwrap_or(&0));
-        let right_offset = *self
-            .lines
-            .get(right as usize)
-            .unwrap_or_else(|| self.lines.last().unwrap_or(&0));
+        let left_page_index = left / self.def_cache_size;
+        let right_page_index = right / self.def_cache_size;
 
-        self.last_bounds = Some(LastBound { left, right });
+        let left_page = *self.lines.get(left_page_index as usize)
+            .unwrap_or_else(|| self.lines.first().unwrap_or(&LineChunk {
+                fst_line: 0,
+                lst_line: 0,
+                left_offset: 0,
+                right_offset: 0,
+            }));
 
-        self.reader.seek(SeekFrom::Start(left_offset))?;
+        let right_page = *self.lines.get(right_page_index as usize)
+            .unwrap_or_else(|| self.lines.last().unwrap_or(&LineChunk {
+                fst_line: 0,
+                lst_line: 0,
+                left_offset: 0,
+                right_offset: 0,
+            }));
 
-        let buf_length = (right_offset - left_offset) as usize;
+        self.last_bounds = Some(LastBound { left: left_page.fst_line, right: right_page.lst_line });
+
+        self.reader.seek(SeekFrom::Start(left_page.left_offset))?;
+
+        let buf_length = (right_page.right_offset - left_page.left_offset) as usize;
         let mut buf = vec![0; buf_length];
 
         self.reader.read_exact(buf.as_mut_slice())?;
@@ -406,7 +454,7 @@ impl LineBasedFileView {
         let res = BufReader::new(buf.as_slice());
         self.line_cache = res.lines().map(|l| l.unwrap()).collect();
 
-        debug!("LEFTOFFSET = {left_offset} || RIGHTOFFSET = {right_offset} || R.START = {:?} || R.END = {:?} || SELF.LASTBOUNDS = {:?} || CACHELEN = {}", r.start_bound(), r.end_bound(), &self.last_bounds, self.line_cache.len());
+        debug!("LEFT_PAGE = {left_page:?} || RIGHT_PAGE = {right_page:?} || R.START = {:?} || R.END = {:?} || SELF.LASTBOUNDS = {:?} || CACHELEN = {}", r.start_bound(), r.end_bound(), &self.last_bounds, self.line_cache.len());
 
         Ok(())
     }
