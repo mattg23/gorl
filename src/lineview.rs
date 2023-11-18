@@ -30,7 +30,7 @@ pub struct LineBasedFileView {
 impl LineBasedFileView {
     pub fn new(file_path: String) -> anyhow::Result<Self> {
         let file = File::open(&file_path)?;
-        let mut reader = BufReader::new(file);
+        let mut reader = BufReader::with_capacity(SETTINGS.read().unwrap().file_buffer_mb*1024*1024,file);
         let mut lines: Vec<LineChunk> = vec![];
 
         let mut chunk: LineChunk = LineChunk {

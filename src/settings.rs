@@ -24,6 +24,7 @@ impl Default for FontSettings {
 pub(crate) struct Settings {
     pub font: FontSettings,
     pub cache_size: u64,
+    pub file_buffer_mb: usize
 }
 
 pub(crate) const DEF_CACHE_RANGE: u64 = 500;
@@ -31,6 +32,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             cache_size: DEF_CACHE_RANGE,
+            file_buffer_mb: 8,
             font: FontSettings::default(),
         }
     }
