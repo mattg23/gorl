@@ -4,12 +4,12 @@ use grep::searcher::sinks::UTF8;
 use grep::searcher::{BinaryDetection, SearcherBuilder};
 use log::{debug, error, info};
 use std::rc::Rc;
-use std::sync::RwLock;
+use std::sync::{RwLock};
 use flume::{Sender};
 use winsafe::co::{CHARSET, CLIP, COLOR, ES, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, WS};
 use winsafe::gui::{Brush, Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
-use winsafe::{co, gui, prelude::*, HFONT, SIZE};
+use winsafe::{co, gui, prelude::*, HFONT, SIZE, WString};
 
 fn search_in_file(query: &str, path: &str) -> anyhow::Result<Vec<(u64, String)>> {
     let mut res = vec![];
@@ -40,10 +40,11 @@ fn search_in_file(query: &str, path: &str) -> anyhow::Result<Vec<(u64, String)>>
 pub(crate) struct SearchWindow {
     wnd: gui::WindowModeless,
     search_query_txt_box: gui::Edit,
-    search_results: gui::ListView,
+    search_results_list: gui::ListView,
     search_button: gui::Button,
     current_file: Rc<RwLock<Option<String>>>,
-    transmitter: Sender<MwMessage>
+    transmitter: Sender<MwMessage>,
+    current_search_results: Rc<RwLock<Option<Vec<(u64, String)>>>>,
 }
 
 impl SearchWindow {
@@ -96,7 +97,7 @@ impl SearchWindow {
                 columns: vec![("Line".to_string(), 128), ("Text".to_string(), 3200)],
                 resize_behavior: (Horz::Resize, Vert::Resize),
                 list_view_ex_style: LVS_EX::DOUBLEBUFFER | LVS_EX::FULLROWSELECT,
-                list_view_style: LVS::REPORT | LVS::NOLABELWRAP,
+                list_view_style: LVS::REPORT | LVS::NOLABELWRAP | LVS::OWNERDATA,
                 ..Default::default()
             },
         );
@@ -104,10 +105,11 @@ impl SearchWindow {
         let mut new_self = Self {
             wnd,
             search_query_txt_box,
-            search_results,
+            search_results_list: search_results,
             search_button,
             current_file: Rc::new(RwLock::new(None)),
-            transmitter
+            transmitter,
+            current_search_results: Rc::new(RwLock::new(None)),
         };
 
         new_self.events(); // attach our events
@@ -143,23 +145,23 @@ impl SearchWindow {
 
                     myself.search_query_txt_box.set_font(&font);
 
-                    myself.search_results.hwnd().SendMessage(
+                    myself.search_results_list.hwnd().SendMessage(
                         SetFont {
                             hfont: font.leak(),
                             redraw: true,
                         }
-                        .as_generic_wm(),
+                            .as_generic_wm(),
                     );
                 }
                 Ok(0)
             }
         });
 
-        self.search_results.on().nm_dbl_clk({
+        self.search_results_list.on().nm_dbl_clk({
             let myself = self.clone();
             move |msg| {
                 let index = msg.iItem;
-                let lnum_str = myself.search_results.items().get(index as u32).text(0);
+                let lnum_str = myself.search_results_list.items().get(index as u32).text(0);
 
                 if let Ok(num) = lnum_str.as_str().parse::<u64>() {
                     debug!(
@@ -167,6 +169,56 @@ impl SearchWindow {
                     );
 
                     myself.transmitter.send(MwMessage::JumpTo(num))?;
+                }
+
+                Ok(())
+            }
+        });
+
+        self.search_results_list.on().lvn_get_disp_info({
+            let myself = self.clone();
+            move |info| {
+                if myself.current_search_results.read().is_ok_and(|o| o.is_none()) {
+                    return Ok(());
+                }
+
+                if info.item.mask.has(co::LVIF::TEXT) {
+                    let index = info.item.iItem as usize;
+                    let line_set = match myself.current_search_results.read() {
+                        Ok(guard) => {
+                            if guard.is_some() {
+                                let results = guard.as_ref().unwrap();
+                                if let Some((lnum, line)) = results.get(index) {
+                                    let text_to_set = if info.item.iSubItem == 0 {
+                                        // first col
+                                        WString::from_str(format!("{lnum}"))
+                                    } else {
+                                        WString::from_str(line)
+                                    };
+
+                                    let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer
+                                    let out_slice =
+                                        unsafe { std::slice::from_raw_parts_mut(ptr, cch as _) };
+                                    out_slice
+                                        .iter_mut()
+                                        .zip(text_to_set.as_slice())
+                                        .for_each(|(dest, src)| *dest = *src); // copy from our string to their buffer
+                                    Ok(())
+                                } else {
+                                    Err(format!("Line not found with index {index} "))
+                                }
+                            } else {
+                                Err(format!("No search results available"))
+                            }
+                        }
+                        Err(error) => {
+                            Err(format!("{error}"))
+                        }
+                    };
+
+                    if line_set.is_err() {
+                        error!("SeachWindow: ERROR SETTING ITEM TEXT {index} {:?}", line_set.unwrap_err());
+                    }
                 }
 
                 Ok(())
@@ -182,25 +234,25 @@ impl SearchWindow {
                         let query = myself.search_query_txt_box.text();
                         match search_in_file(query.as_str(), file.as_str()) {
                             Ok(search_results) => {
-                                myself.search_results.items().delete_all();
-                                let items = myself.search_results.items();
-                                for (lnum, line) in &search_results {
-                                    items.add(&[format!("{lnum}").as_str(), line.as_str()], None);
+                                let len = search_results.len();
+                                if let Ok(mut guard) = myself.current_search_results.write() {
+                                    *guard = Some(search_results);
+
+                                    myself.wnd.set_text(
+                                        format!(
+                                            "GORL - Search - #RES={} [{}]",
+                                            len,
+                                            myself.current_file.read().unwrap().as_ref().unwrap()
+                                        )
+                                            .as_str(),
+                                    );
+
+                                    info!("SEARCH WINDOW: SEARCH EXECUTED. #RES={}",len);
+                                    myself.search_results_list.items().delete_all();
+                                    myself.search_results_list.items().set_count(len as u32, None);
+                                } else {
+                                    error!("COULD NOT LOCK SearchWindow.current_search_results")
                                 }
-
-                                myself.wnd.set_text(
-                                    format!(
-                                        "GORL - Search - #RES={} [{}]",
-                                        search_results.len(),
-                                        myself.current_file.read().unwrap().as_ref().unwrap()
-                                    )
-                                    .as_str(),
-                                );
-
-                                info!(
-                                    "SEARCH WINDOW: SEARCH EXECUTED. #RES={}",
-                                    search_results.len()
-                                );
                             }
                             Err(err) => {
                                 error!("SEARCH WINDOW: ERROR DURING SEARCH: {err}");
