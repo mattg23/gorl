@@ -1,10 +1,11 @@
-use crate::SETTINGS;
+use crate::{MwMessage, SETTINGS};
 use grep::regex::RegexMatcherBuilder;
 use grep::searcher::sinks::UTF8;
 use grep::searcher::{BinaryDetection, SearcherBuilder};
 use log::{debug, error, info};
 use std::rc::Rc;
 use std::sync::RwLock;
+use flume::{Sender};
 use winsafe::co::{CHARSET, CLIP, COLOR, ES, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, WS};
 use winsafe::gui::{Brush, Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
@@ -36,16 +37,17 @@ fn search_in_file(query: &str, path: &str) -> anyhow::Result<Vec<(u64, String)>>
 }
 
 #[derive(Clone)]
-pub struct SearchWindow {
+pub(crate) struct SearchWindow {
     wnd: gui::WindowModeless,
     search_query_txt_box: gui::Edit,
     search_results: gui::ListView,
     search_button: gui::Button,
     current_file: Rc<RwLock<Option<String>>>,
+    transmitter: Sender<MwMessage>
 }
 
 impl SearchWindow {
-    pub fn new(parent: &impl GuiParent) -> Self {
+    pub fn new(parent: &impl GuiParent, transmitter: Sender<MwMessage>) -> Self {
         let wnd = gui::WindowModeless::new(
             parent,
             gui::WindowModelessOpts {
@@ -105,6 +107,7 @@ impl SearchWindow {
             search_results,
             search_button,
             current_file: Rc::new(RwLock::new(None)),
+            transmitter
         };
 
         new_self.events(); // attach our events
@@ -162,6 +165,8 @@ impl SearchWindow {
                     debug!(
                         "SEARCH WINDOW: USER DOUBLE CLICKED ON ITEM {index} => parse to line {num}"
                     );
+
+                    myself.transmitter.send(MwMessage::JumpTo(num))?;
                 }
 
                 Ok(())

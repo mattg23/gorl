@@ -9,21 +9,32 @@ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::ops::RangeBounds;
 use std::rc::Rc;
 use std::sync::RwLock;
-
+use flume::{Sender, Receiver};
 use crate::search::SearchWindow;
 use winsafe::co::{CHARSET, CLIP, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY};
 use winsafe::gui::{Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
 use winsafe::{co, gui, prelude::*, WString, HFONT, SIZE};
+use winsafe::msg::WndMsg;
 
 lazy_static! {
     static ref SETTINGS: RwLock<settings::Settings> = RwLock::new(settings::Settings::new());
 }
 
-fn main() -> anyhow::Result<()> {
-    env_logger::init();
+static CHECK_INBOX: co::WM = unsafe { co::WM::from_raw(0x1234) };
 
-    let my = GorlMainWindow::new(Rc::new(RwLock::new(None))); // instantiate our main window
+
+
+fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt::init();
+
+    let (tx, rx) = flume::unbounded();
+
+    let _rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+
+    let my = GorlMainWindow::new(rx.clone(), tx.clone()); // instantiate our main window
 
     if let Err(e) = my.wnd.run_main(None) {
         // ... and run it
@@ -33,16 +44,23 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Copy, Clone, Debug)]
+pub(crate) enum MwMessage {
+    JumpTo(u64)
+}
+
 #[derive(Clone)]
-pub struct GorlMainWindow {
+pub(crate) struct GorlMainWindow {
     wnd: gui::WindowMain,
     list_view: gui::ListView,
     view: Rc<RwLock<Option<LineBasedFileView>>>,
     search_window: SearchWindow,
+    inbox: Receiver<MwMessage>,
+    //transmitter: Sender<MwMessage>,
 }
 
 impl GorlMainWindow {
-    pub fn new(view: Rc<RwLock<Option<LineBasedFileView>>>) -> Self {
+    pub fn new(inbox: Receiver<MwMessage>, transmitter: Sender<MwMessage>) -> Self {
         let wnd = gui::WindowMain::new(
             // instantiate the window manager
             gui::WindowMainOpts {
@@ -64,18 +82,47 @@ impl GorlMainWindow {
                 columns: vec![("L".to_string(), 128), ("Text".to_string(), 3200)],
                 resize_behavior: (Horz::Resize, Vert::Resize),
                 list_view_ex_style: LVS_EX::DOUBLEBUFFER | LVS_EX::FULLROWSELECT,
-                list_view_style: LVS::REPORT | LVS::OWNERDATA | LVS::NOLABELWRAP,
+                list_view_style: LVS::REPORT | LVS::OWNERDATA | LVS::NOLABELWRAP | LVS::SHOWSELALWAYS,
                 ..Default::default()
             },
         );
 
-        let search_window = SearchWindow::new(&wnd);
+        let search_window = SearchWindow::new(&wnd, transmitter.clone());
         let mut new_self = Self {
-            wnd,
+            wnd: wnd.clone(),
             list_view,
-            view,
+            view: Rc::new(RwLock::new(None)),
             search_window,
+            inbox: inbox.clone(),
+            //transmitter: transmitter.clone(),
         };
+
+        let wnd_copy = wnd.clone();
+        let rx_copy = inbox.clone();
+        let tx_copy = transmitter.clone();
+
+        wnd.spawn_new_thread(move || {
+
+            debug!("Started Mainwindow CHECK_INBOX thread");
+
+            while let Ok(msg) = rx_copy.recv() {
+                debug!("Sending  CHECK_INBOX to MainWindow");
+                match tx_copy.send(msg) {
+                    Ok(_) => {
+                        let check_inbox_msg = WndMsg::new(CHECK_INBOX, 0, 0);
+                        let res = wnd_copy.hwnd().SendMessage(check_inbox_msg);
+                        debug!("wnd_copy.hwnd().SendMessage returned = {res:?}")
+                    }
+                    Err(err) => {
+                        error!("Sending  CHECK_INBOX to MainWindow: tx_copy.send(msg): {err}")
+                    }
+                };
+
+            }
+
+            Ok(())
+        });
+
         new_self.events(); // attach our events
         new_self
     }
@@ -86,14 +133,46 @@ impl GorlMainWindow {
     }
 
     fn jump_to(&self, line: u64) {
-        debug!("MAIN WINDOW: RECEIVED SEARCH RESULT SELEDTED {line}");
-        let item = self.list_view.items().get(line as u32);
-        item.select(true);
+        debug!("MAIN WINDOW: RECEIVED SEARCH RESULT SELECTED {line}");
+
+        self.list_view.items().select_all(false);
+
+        let item = self.list_view.items().get((line - 1) as u32);
         item.ensure_visible();
         item.focus();
+        item.select(true);
+
+        self.wnd.hwnd().SetForegroundWindow();
+
     }
 
+    fn handle(&self, msg: MwMessage) {
+        debug!("MainWindow Received: {msg:?}");
+
+        match msg {
+            MwMessage::JumpTo(line) => {
+                self.jump_to(line)
+            }
+        }
+    }
+
+
+
     fn events(&mut self) {
+        self.wnd.on().wm(CHECK_INBOX, {
+            let myself = self.clone();
+            move |_|{
+
+                debug!("MainWindow: RECEIVED CHECK_INBOX");
+
+                match myself.inbox.try_recv() {
+                    Ok(msg) => myself.handle(msg),
+                    Err(err) =>error!("MainWindow: ERROR getting MwMessage from inbox: {err}")
+                };
+                Ok(Some(0))
+            }
+        });
+
         self.wnd.on().wm_create({
             let myself = self.clone();
             move |_msg| {
@@ -122,9 +201,10 @@ impl GorlMainWindow {
                             hfont: font.leak(),
                             redraw: true,
                         }
-                        .as_generic_wm(),
+                            .as_generic_wm(),
                     );
                 }
+
                 Ok(0)
             }
         });
