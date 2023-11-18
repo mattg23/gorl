@@ -64,6 +64,8 @@ impl LineBasedFileView {
                 chunk.left_offset = chunk.right_offset;
                 chunk.fst_line = chunk.lst_line;
             }
+
+            str_buf.clear();
         }
 
         if let Some(last) = lines.last() {
