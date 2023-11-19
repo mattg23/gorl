@@ -249,7 +249,7 @@ impl GorlMainWindow {
                                         *myself.view.write().unwrap() = Some(view);
                                     }
                                     myself.list_view.items().set_count(
-                                        (myself.view.read().unwrap().as_ref().unwrap().line_count().checked_sub(1).unwrap_or_default()) as u32,
+                                        (myself.view.read().unwrap().as_ref().unwrap().line_count()) as u32,
                                         None,
                                     );
                                     myself.wnd.set_text(format!("GORL - {f}").as_str());
