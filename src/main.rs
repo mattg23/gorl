@@ -2,11 +2,14 @@ mod search;
 mod settings;
 mod lineview;
 mod main_window;
+mod control_window;
 
+use std::ops::Deref;
+use std::rc::Rc;
 use lazy_static::lazy_static;
 use log::{error};
-use std::sync::RwLock;
-use crate::main_window::GorlMainWindow;
+use std::sync::{Arc, RwLock};
+use crate::control_window::ControlPanel;
 
 
 lazy_static! {
@@ -22,17 +25,20 @@ fn main() -> anyhow::Result<()> {
         .build()
         .unwrap();
 
-        let fst = rt.spawn_blocking(|| {
-            let (tx, rx) = flume::unbounded();
-            let my = GorlMainWindow::new(rx.clone(), tx.clone()); // instantiate our main window
-            if let Err(e) = my.wnd.run_main(None) {
-                // ... and run it
-                error!("{}", e);
-            }
-        });
+    let rt_handle = Arc::new(rt);
 
-    rt.block_on(async move {
-       let _ = fst.await;
+    let outer_handle = rt_handle.clone();
+
+    let fst = outer_handle.spawn_blocking(move || {
+        let my = ControlPanel::new(rt_handle); // instantiate our main window
+        if let Err(e) = my.wnd.run_main(None) {
+            // ... and run it
+            error!("{}", e);
+        }
+    });
+
+    outer_handle.block_on(async move {
+        let _ = fst.await;
     });
 
     Ok(())

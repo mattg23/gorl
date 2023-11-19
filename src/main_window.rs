@@ -4,7 +4,7 @@ use std::sync::RwLock;
 use winsafe::msg::WndMsg;
 use crate::lineview::LineBasedFileView;
 
-use flume::{Sender, Receiver};
+use flume::{Receiver};
 use log::{debug, error, info};
 use crate::search::SearchWindow;
 use winsafe::{co, gui, prelude::*, WString, HFONT, SIZE};
@@ -31,8 +31,10 @@ pub(crate) struct GorlMainWindow {
 static CHECK_INBOX: co::WM = unsafe { co::WM::from_raw(0x1234) };
 
 impl GorlMainWindow {
-    pub fn new(inbox: Receiver<MwMessage>, transmitter: Sender<MwMessage>) -> Self {
+    pub fn new() -> Self {
         info!("Creating Main Window. Settings = {:?}", SETTINGS.read());
+
+        let (transmitter, inbox) = flume::unbounded();
 
         let wnd = gui::WindowMain::new(
             // instantiate the window manager
