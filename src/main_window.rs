@@ -1,3 +1,4 @@
+use std::{mem, ptr};
 use std::rc::Rc;
 use std::sync::RwLock;
 
@@ -7,10 +8,11 @@ use crate::lineview::LineBasedFileView;
 use flume::{Receiver};
 use log::{debug, error, info};
 use crate::search::SearchWindow;
-use winsafe::{co, gui, prelude::*, WString, HFONT, SIZE};
-use winsafe::co::{CHARSET, CLIP, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY};
+use winsafe::{co, gui, prelude::*, WString, HFONT, SIZE, SysResult, HWND, EmptyClipboard, SetClipboardData, HGLOBAL};
+use winsafe::co::{CF, CHARSET, CLIP, FW, GMEM, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, VK};
 use winsafe::gui::{Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
+use winsafe::task_dlg::info;
 use crate::{SETTINGS};
 
 #[derive(Copy, Clone, Debug)]
@@ -29,6 +31,24 @@ pub(crate) struct GorlMainWindow {
 }
 
 static CHECK_INBOX: co::WM = unsafe { co::WM::from_raw(0x1234) };
+
+fn copy_text_to_clipboard(hwnd: &HWND, text: &str) -> anyhow::Result<()> {
+    let open = hwnd.OpenClipboard()?;
+    EmptyClipboard()?;
+
+    let mut wstr = text.encode_utf16().collect::<Vec<u16>>();
+    wstr.push(0); // terminate with \0
+
+    let hg = HGLOBAL::GlobalAlloc(Some(GMEM::MOVEABLE), wstr.len() * std::mem::size_of::<u16>())?;
+    {
+        let dst = hg.GlobalLock()?;
+        unsafe { ptr::copy_nonoverlapping(wstr.as_ptr(), dst.as_ptr() as _, wstr.len()) };
+    }
+
+    unsafe { let _ = SetClipboardData(CF::UNICODETEXT, hg.ptr() as _)?; }
+
+    Ok(())
+}
 
 impl GorlMainWindow {
     pub fn new() -> Self {
@@ -136,6 +156,42 @@ impl GorlMainWindow {
         }
     }
 
+    extern "system" fn subclass_list_view(h_wnd: HWND, u_msg: co::WM, w_param: usize, l_param: isize, _u_id_subclass: usize, dw_ref_data: usize) -> isize {
+        if u_msg == co::WM::KEYDOWN {
+            unsafe {
+                if VK::from_raw(w_param as u16) == VK::CHAR_C {
+                    if winsafe::GetAsyncKeyState(VK::CONTROL) {
+                        let is_shift_down = winsafe::GetAsyncKeyState(VK::SHIFT);
+
+                        let ptr = dw_ref_data as *const Self;
+
+                        let mut str_to_cpy = String::new();
+
+                        for sel_item in (*ptr).list_view.items().iter_selected() {
+                            if is_shift_down {
+                                str_to_cpy.push_str(sel_item.text(0).as_str());
+                                str_to_cpy.push_str(" | ");
+                            }
+                            str_to_cpy.push_str(sel_item.text(1).as_str());
+                            str_to_cpy.push_str("\r\n"); // Windows wants CRLF :(
+                        }
+
+                        if !str_to_cpy.is_empty() {
+                            match copy_text_to_clipboard(&h_wnd, str_to_cpy.as_str()) {
+                                Ok(_) => { info!("subclass_list_view::SubClassProcedure: clipboard data has been set!") }
+                                Err(e) => { error!("subclass_list_view::SubClassProcedure: could not set clipboard data: {e}") }
+                            }
+                        }
+
+                        debug!("subclass_list_view::SubClassProcedure {}, w_param={}, lParama={}",u_msg, w_param, l_param);
+                    }
+                }
+            }
+        }
+        let wm_any = winsafe::msg::WndMsg::new(u_msg, w_param, l_param);
+        h_wnd.DefSubclassProc(wm_any)
+    }
+
 
     fn events(&mut self) {
         self.wnd.on().wm(CHECK_INBOX, {
@@ -159,7 +215,7 @@ impl GorlMainWindow {
 
                 if let Ok(settings) = SETTINGS.read() {
                     let mut font = HFONT::CreateFont(
-                        SIZE::new(0,settings.font.size ),
+                        SIZE::new(0, settings.font.size),
                         0,
                         0,
                         FW::MEDIUM,
@@ -181,6 +237,17 @@ impl GorlMainWindow {
                         }
                             .as_generic_wm(),
                     );
+                }
+
+                unsafe {
+                    match myself.list_view.hwnd().SetWindowSubclass(Self::subclass_list_view, 0, &myself as *const _ as _) {
+                        Ok(_) => {
+                            info!("MainWindow: SetWindowSubclass: OK");
+                        }
+                        Err(e) => {
+                            error!("MainWindow: SetWindowSubclass: {e}");
+                        }
+                    };
                 }
 
                 Ok(0)
@@ -249,6 +316,7 @@ impl GorlMainWindow {
                         } else {
                             Err("Could not get lock view ref mutably OUTER")
                         };
+
 
                         match line_text {
                             Ok(Ok(text)) => {
