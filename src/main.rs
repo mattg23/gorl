@@ -3,6 +3,7 @@ mod settings;
 mod lineview;
 mod main_window;
 mod control_window;
+mod utils;
 
 
 use lazy_static::lazy_static;

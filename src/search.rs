@@ -142,6 +142,41 @@ impl SearchWindow {
         h_wnd.DefSubclassProc(wm_any)
     }
 
+    extern "system" fn subclass_search_result_list_view(h_wnd: winsafe::HWND, u_msg: co::WM, w_param: usize, l_param: isize, _u_id_subclass: usize, dw_ref_data: usize) -> isize {
+        if u_msg == co::WM::KEYDOWN {
+            unsafe {
+                if VK::from_raw(w_param as u16) == VK::CHAR_C && winsafe::GetAsyncKeyState(VK::CONTROL) {
+                    let is_shift_down = winsafe::GetAsyncKeyState(VK::SHIFT);
+
+                    let ptr = dw_ref_data as *const Self;
+
+
+                    let sel_count = (*ptr).search_results_list.items().selected_count();
+                    if 0 < sel_count && sel_count <= SETTINGS.read().unwrap().max_nb_of_lines_to_copy {
+                        let mut str_to_cpy = String::new();
+
+                        for sel_item in (*ptr).search_results_list.items().iter_selected() {
+                            if is_shift_down {
+                                str_to_cpy.push_str(sel_item.text(0).as_str());
+                                str_to_cpy.push_str(" | ");
+                            }
+                            str_to_cpy.push_str(sel_item.text(1).as_str());
+                        }
+
+                        match crate::utils::copy_text_to_clipboard(&h_wnd, str_to_cpy.as_str()) {
+                            Ok(_) => { info!("subclass_list_view::SubClassProcedure: clipboard data has been set!") }
+                            Err(e) => { error!("subclass_list_view::SubClassProcedure: could not set clipboard data: {e}") }
+                        }
+                    }
+                }
+
+                debug!("subclass_list_view::SubClassProcedure {}, w_param={}, lParama={}",u_msg, w_param, l_param);
+            }
+        }
+        let wm_any = winsafe::msg::WndMsg::new(u_msg, w_param, l_param);
+        h_wnd.DefSubclassProc(wm_any)
+    }
+
     fn events(&mut self) {
         self.wnd.on().wm_create({
             let myself = self.clone();
@@ -176,6 +211,7 @@ impl SearchWindow {
 
 
                     unsafe { let _ = myself.search_query_txt_box.hwnd().SetWindowSubclass(Self::handle_edit_text_box, 0, &myself as *const _ as _); }
+                    unsafe { let _ = myself.search_results_list.hwnd().SetWindowSubclass(Self::subclass_search_result_list_view, 0, &myself as *const _ as _); }
                 }
                 Ok(0)
             }

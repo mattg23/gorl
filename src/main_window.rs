@@ -1,4 +1,4 @@
-use std::{ptr};
+
 use std::rc::Rc;
 use std::sync::RwLock;
 
@@ -8,8 +8,8 @@ use crate::lineview::LineBasedFileView;
 use flume::{Receiver};
 use log::{debug, error, info};
 use crate::search::SearchWindow;
-use winsafe::{co, gui, prelude::*, WString, HFONT, SIZE, HWND, EmptyClipboard, SetClipboardData, HGLOBAL};
-use winsafe::co::{CF, CHARSET, CLIP, FW, GMEM, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, VK};
+use winsafe::{co, gui, prelude::*, WString, HFONT, SIZE, HWND};
+use winsafe::co::{CHARSET, CLIP, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, VK};
 use winsafe::gui::{Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
 
@@ -31,24 +31,6 @@ pub(crate) struct GorlMainWindow {
 }
 
 static CHECK_INBOX: co::WM = unsafe { co::WM::from_raw(0x1234) };
-
-fn copy_text_to_clipboard(hwnd: &HWND, text: &str) -> anyhow::Result<()> {
-    let _open = hwnd.OpenClipboard()?;
-    EmptyClipboard()?;
-
-    let mut wstr = text.encode_utf16().collect::<Vec<u16>>();
-    wstr.push(0); // terminate with \0
-
-    let hg = HGLOBAL::GlobalAlloc(Some(GMEM::MOVEABLE), wstr.len() * std::mem::size_of::<u16>())?;
-    {
-        let dst = hg.GlobalLock()?;
-        unsafe { ptr::copy_nonoverlapping(wstr.as_ptr(), dst.as_ptr() as _, wstr.len()) };
-    }
-
-    unsafe { let _ = SetClipboardData(CF::UNICODETEXT, hg.ptr() as _)?; }
-
-    Ok(())
-}
 
 impl GorlMainWindow {
     pub fn new() -> Self {
@@ -164,26 +146,28 @@ impl GorlMainWindow {
 
                     let ptr = dw_ref_data as *const Self;
 
-                    let mut str_to_cpy = String::new();
 
-                    for sel_item in (*ptr).list_view.items().iter_selected() {
-                        if is_shift_down {
-                            str_to_cpy.push_str(sel_item.text(0).as_str());
-                            str_to_cpy.push_str(" | ");
+                    let sel_count = (*ptr).list_view.items().selected_count();
+                    if 0 < sel_count && sel_count <= SETTINGS.read().unwrap().max_nb_of_lines_to_copy {
+                        let mut str_to_cpy = String::new();
+
+                        for sel_item in (*ptr).list_view.items().iter_selected() {
+                            if is_shift_down {
+                                str_to_cpy.push_str(sel_item.text(0).as_str());
+                                str_to_cpy.push_str(" | ");
+                            }
+                            str_to_cpy.push_str(sel_item.text(1).as_str());
+                            str_to_cpy.push_str("\r\n"); // Windows wants CRLF :(
                         }
-                        str_to_cpy.push_str(sel_item.text(1).as_str());
-                        str_to_cpy.push_str("\r\n"); // Windows wants CRLF :(
-                    }
 
-                    if !str_to_cpy.is_empty() {
-                        match copy_text_to_clipboard(&h_wnd, str_to_cpy.as_str()) {
+                        match crate::utils::copy_text_to_clipboard(&h_wnd, str_to_cpy.as_str()) {
                             Ok(_) => { info!("subclass_list_view::SubClassProcedure: clipboard data has been set!") }
                             Err(e) => { error!("subclass_list_view::SubClassProcedure: could not set clipboard data: {e}") }
                         }
                     }
-
-                    debug!("subclass_list_view::SubClassProcedure {}, w_param={}, lParama={}",u_msg, w_param, l_param);
                 }
+
+                debug!("subclass_list_view::SubClassProcedure {}, w_param={}, lParama={}",u_msg, w_param, l_param);
             }
         }
         let wm_any = winsafe::msg::WndMsg::new(u_msg, w_param, l_param);

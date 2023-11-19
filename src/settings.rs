@@ -26,6 +26,7 @@ pub(crate) struct Settings {
     pub cache_size: u64,
     pub file_buffer_mb: usize,
     pub max_nb_of_ui_threads: usize,
+    pub max_nb_of_lines_to_copy: u32
 }
 
 pub(crate) const DEF_CACHE_RANGE: u64 = 500;
@@ -35,6 +36,7 @@ impl Default for Settings {
             cache_size: DEF_CACHE_RANGE,
             file_buffer_mb: 8,
             max_nb_of_ui_threads: 64,
+            max_nb_of_lines_to_copy: 2500,
             font: FontSettings::default(),
         }
     }
