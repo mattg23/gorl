@@ -1,4 +1,4 @@
-use crate::{MwMessage, SETTINGS};
+use crate::{SETTINGS};
 use grep::regex::RegexMatcherBuilder;
 use grep::searcher::sinks::UTF8;
 use grep::searcher::{BinaryDetection, SearcherBuilder};
@@ -10,6 +10,7 @@ use winsafe::co::{BS, CHARSET, CLIP, COLOR, ES, FW, LVS, LVS_EX, OUT_PRECIS, PIT
 use winsafe::gui::{Brush, Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
 use winsafe::{co, gui, prelude::*, HFONT, SIZE, WString};
+use crate::main_window::MwMessage;
 
 fn search_in_file(query: &str, path: &str) -> anyhow::Result<Vec<(u64, String)>> {
     let mut res = vec![];
