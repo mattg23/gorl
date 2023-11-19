@@ -1,4 +1,4 @@
-use std::{mem, ptr};
+use std::{ptr};
 use std::rc::Rc;
 use std::sync::RwLock;
 
@@ -8,11 +8,11 @@ use crate::lineview::LineBasedFileView;
 use flume::{Receiver};
 use log::{debug, error, info};
 use crate::search::SearchWindow;
-use winsafe::{co, gui, prelude::*, WString, HFONT, SIZE, SysResult, HWND, EmptyClipboard, SetClipboardData, HGLOBAL};
+use winsafe::{co, gui, prelude::*, WString, HFONT, SIZE, HWND, EmptyClipboard, SetClipboardData, HGLOBAL};
 use winsafe::co::{CF, CHARSET, CLIP, FW, GMEM, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, VK};
 use winsafe::gui::{Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
-use winsafe::task_dlg::info;
+
 use crate::{SETTINGS};
 
 #[derive(Copy, Clone, Debug)]
@@ -33,7 +33,7 @@ pub(crate) struct GorlMainWindow {
 static CHECK_INBOX: co::WM = unsafe { co::WM::from_raw(0x1234) };
 
 fn copy_text_to_clipboard(hwnd: &HWND, text: &str) -> anyhow::Result<()> {
-    let open = hwnd.OpenClipboard()?;
+    let _open = hwnd.OpenClipboard()?;
     EmptyClipboard()?;
 
     let mut wstr = text.encode_utf16().collect::<Vec<u16>>();
@@ -159,32 +159,30 @@ impl GorlMainWindow {
     extern "system" fn subclass_list_view(h_wnd: HWND, u_msg: co::WM, w_param: usize, l_param: isize, _u_id_subclass: usize, dw_ref_data: usize) -> isize {
         if u_msg == co::WM::KEYDOWN {
             unsafe {
-                if VK::from_raw(w_param as u16) == VK::CHAR_C {
-                    if winsafe::GetAsyncKeyState(VK::CONTROL) {
-                        let is_shift_down = winsafe::GetAsyncKeyState(VK::SHIFT);
+                if VK::from_raw(w_param as u16) == VK::CHAR_C && winsafe::GetAsyncKeyState(VK::CONTROL) {
+                    let is_shift_down = winsafe::GetAsyncKeyState(VK::SHIFT);
 
-                        let ptr = dw_ref_data as *const Self;
+                    let ptr = dw_ref_data as *const Self;
 
-                        let mut str_to_cpy = String::new();
+                    let mut str_to_cpy = String::new();
 
-                        for sel_item in (*ptr).list_view.items().iter_selected() {
-                            if is_shift_down {
-                                str_to_cpy.push_str(sel_item.text(0).as_str());
-                                str_to_cpy.push_str(" | ");
-                            }
-                            str_to_cpy.push_str(sel_item.text(1).as_str());
-                            str_to_cpy.push_str("\r\n"); // Windows wants CRLF :(
+                    for sel_item in (*ptr).list_view.items().iter_selected() {
+                        if is_shift_down {
+                            str_to_cpy.push_str(sel_item.text(0).as_str());
+                            str_to_cpy.push_str(" | ");
                         }
-
-                        if !str_to_cpy.is_empty() {
-                            match copy_text_to_clipboard(&h_wnd, str_to_cpy.as_str()) {
-                                Ok(_) => { info!("subclass_list_view::SubClassProcedure: clipboard data has been set!") }
-                                Err(e) => { error!("subclass_list_view::SubClassProcedure: could not set clipboard data: {e}") }
-                            }
-                        }
-
-                        debug!("subclass_list_view::SubClassProcedure {}, w_param={}, lParama={}",u_msg, w_param, l_param);
+                        str_to_cpy.push_str(sel_item.text(1).as_str());
+                        str_to_cpy.push_str("\r\n"); // Windows wants CRLF :(
                     }
+
+                    if !str_to_cpy.is_empty() {
+                        match copy_text_to_clipboard(&h_wnd, str_to_cpy.as_str()) {
+                            Ok(_) => { info!("subclass_list_view::SubClassProcedure: clipboard data has been set!") }
+                            Err(e) => { error!("subclass_list_view::SubClassProcedure: could not set clipboard data: {e}") }
+                        }
+                    }
+
+                    debug!("subclass_list_view::SubClassProcedure {}, w_param={}, lParama={}",u_msg, w_param, l_param);
                 }
             }
         }
