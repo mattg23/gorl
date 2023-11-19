@@ -4,8 +4,7 @@ mod lineview;
 mod main_window;
 mod control_window;
 
-use std::ops::Deref;
-use std::rc::Rc;
+
 use lazy_static::lazy_static;
 use log::{error};
 use std::sync::{Arc, RwLock};
@@ -21,7 +20,7 @@ fn main() -> anyhow::Result<()> {
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
-        .max_blocking_threads(8192) // basically the limit of log file one can open
+        .max_blocking_threads(SETTINGS.read().unwrap().max_nb_of_ui_threads) // basically the limit of log file one can open
         .build()
         .unwrap();
 

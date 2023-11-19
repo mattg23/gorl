@@ -159,7 +159,7 @@ impl GorlMainWindow {
 
                 if let Ok(settings) = SETTINGS.read() {
                     let mut font = HFONT::CreateFont(
-                        SIZE::new(settings.font.size, 0),
+                        SIZE::new(0,settings.font.size ),
                         0,
                         0,
                         FW::MEDIUM,
