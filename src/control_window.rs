@@ -3,9 +3,12 @@ use std::sync::Arc;
 use log::{error, info};
 
 
+
 use winsafe::{gui, HFONT, SIZE};
 use winsafe::co::{BS, CHARSET, CLIP, FW, OUT_PRECIS, PITCH, QUALITY, SS, WS, WS_EX};
 use winsafe::gui::{Horz, LabelOpts, Vert};
+
+
 use winsafe::msg::wm::SetFont;
 use winsafe::prelude::{gdi_Hfont, GuiEvents, GuiNativeControlEvents, GuiParent, GuiThread, GuiWindow, GuiWindowText, MsgSend, shell_Hwnd, user_Hwnd};
 use crate::main_window::GorlMainWindow;
@@ -81,6 +84,8 @@ impl ControlPanel {
             move |_msg| {
                 info!("CONTROL_PANEL: WM_CREATE");
                 myself.wnd.hwnd().DragAcceptFiles(true);
+
+                let _ = crate::utils::try_set_dark_mode(myself.wnd.hwnd());
 
                 let mut font = HFONT::CreateFont(
                     SIZE::new(0, 30),

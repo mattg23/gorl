@@ -170,7 +170,7 @@ impl GorlMainWindow {
                 debug!("subclass_list_view::SubClassProcedure {}, w_param={}, lParama={}",u_msg, w_param, l_param);
             }
         }
-        let wm_any = winsafe::msg::WndMsg::new(u_msg, w_param, l_param);
+        let wm_any = WndMsg::new(u_msg, w_param, l_param);
         h_wnd.DefSubclassProc(wm_any)
     }
 
@@ -194,7 +194,7 @@ impl GorlMainWindow {
             move |_msg| {
                 info!("WM_CREATE");
                 myself.wnd.hwnd().DragAcceptFiles(true);
-
+                let _ = crate::utils::try_set_dark_mode(myself.wnd.hwnd());
                 if let Ok(settings) = SETTINGS.read() {
                     let mut font = HFONT::CreateFont(
                         SIZE::new(0, settings.font.size),

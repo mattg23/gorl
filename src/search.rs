@@ -6,10 +6,12 @@ use log::{debug, error, info};
 use std::rc::Rc;
 use std::sync::{RwLock};
 use flume::{Sender};
+
 use winsafe::co::{BS, CHARSET, CLIP, COLOR, ES, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, VK, WS};
 use winsafe::gui::{Brush, Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
 use winsafe::{co, gui, prelude::*, HFONT, SIZE, WString};
+
 use crate::main_window::MwMessage;
 
 fn search_in_file(query: &str, path: &str) -> anyhow::Result<Vec<(u64, String)>> {
@@ -182,6 +184,7 @@ impl SearchWindow {
             let myself = self.clone();
             move |_msg| {
                 info!("SEARCH WINDOW: WM_CREATE");
+                let _ = crate::utils::try_set_dark_mode(myself.wnd.hwnd());
                 if let Ok(settings) = SETTINGS.read() {
                     let mut font = HFONT::CreateFont(
                         SIZE::new(0,settings.font.size),
@@ -212,6 +215,7 @@ impl SearchWindow {
 
                     unsafe { let _ = myself.search_query_txt_box.hwnd().SetWindowSubclass(Self::handle_edit_text_box, 0, &myself as *const _ as _); }
                     unsafe { let _ = myself.search_results_list.hwnd().SetWindowSubclass(Self::subclass_search_result_list_view, 0, &myself as *const _ as _); }
+
                 }
                 Ok(0)
             }
