@@ -1,16 +1,18 @@
-use crate::{SETTINGS};
+use crate::SETTINGS;
+use flume::Sender;
 use grep::regex::RegexMatcherBuilder;
 use grep::searcher::sinks::UTF8;
 use grep::searcher::{BinaryDetection, SearcherBuilder};
 use log::{debug, error, info};
 use std::rc::Rc;
-use std::sync::{RwLock};
-use flume::{Sender};
+use std::sync::RwLock;
 
-use winsafe::co::{BS, CHARSET, CLIP, COLOR, ES, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, VK, WS};
+use winsafe::co::{
+    BS, CHARSET, CLIP, COLOR, ES, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, VK, WS,
+};
 use winsafe::gui::{Brush, Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
-use winsafe::{co, gui, prelude::*, HFONT, SIZE, WString};
+use winsafe::{co, gui, prelude::*, WString, HFONT, SIZE};
 
 use crate::main_window::MwMessage;
 
@@ -127,34 +129,54 @@ impl SearchWindow {
         info!("SEARCHWINDOW: set file to {new_path}");
     }
 
-    extern "system" fn handle_edit_text_box(h_wnd: winsafe::HWND, u_msg: co::WM, w_param: usize, l_param: isize, _u_id_subclass: usize, dw_ref_data: usize) -> isize {
-
+    extern "system" fn handle_edit_text_box(
+        h_wnd: winsafe::HWND,
+        u_msg: co::WM,
+        w_param: usize,
+        l_param: isize,
+        _u_id_subclass: usize,
+        dw_ref_data: usize,
+    ) -> isize {
         if u_msg == co::WM::KEYUP {
             unsafe {
                 if VK::from_raw(w_param as u16) == VK::RETURN {
-                    debug!("handle_edit_text_box::SubClassProcedure  {}, w_param={}, lParama={}",u_msg, VK::RETURN, l_param);
+                    debug!(
+                        "handle_edit_text_box::SubClassProcedure  {}, w_param={}, lParama={}",
+                        u_msg,
+                        VK::RETURN,
+                        l_param
+                    );
                     let ptr = dw_ref_data as *const Self;
                     (*ptr).search_button.trigger_click();
                     (*ptr).search_query_txt_box.focus();
                 }
             }
-
         }
         let wm_any = winsafe::msg::WndMsg::new(u_msg, w_param, l_param);
         h_wnd.DefSubclassProc(wm_any)
     }
 
-    extern "system" fn subclass_search_result_list_view(h_wnd: winsafe::HWND, u_msg: co::WM, w_param: usize, l_param: isize, _u_id_subclass: usize, dw_ref_data: usize) -> isize {
+    extern "system" fn subclass_search_result_list_view(
+        h_wnd: winsafe::HWND,
+        u_msg: co::WM,
+        w_param: usize,
+        l_param: isize,
+        _u_id_subclass: usize,
+        dw_ref_data: usize,
+    ) -> isize {
         if u_msg == co::WM::KEYDOWN {
             unsafe {
-                if VK::from_raw(w_param as u16) == VK::CHAR_C && winsafe::GetAsyncKeyState(VK::CONTROL) {
+                if VK::from_raw(w_param as u16) == VK::CHAR_C
+                    && winsafe::GetAsyncKeyState(VK::CONTROL)
+                {
                     let is_shift_down = winsafe::GetAsyncKeyState(VK::SHIFT);
 
                     let ptr = dw_ref_data as *const Self;
 
-
                     let sel_count = (*ptr).search_results_list.items().selected_count();
-                    if 0 < sel_count && sel_count <= SETTINGS.read().unwrap().max_nb_of_lines_to_copy {
+                    if 0 < sel_count
+                        && sel_count <= SETTINGS.read().unwrap().max_nb_of_lines_to_copy
+                    {
                         let mut str_to_cpy = String::new();
 
                         for sel_item in (*ptr).search_results_list.items().iter_selected() {
@@ -166,13 +188,20 @@ impl SearchWindow {
                         }
 
                         match crate::utils::copy_text_to_clipboard(&h_wnd, str_to_cpy.as_str()) {
-                            Ok(_) => { info!("subclass_list_view::SubClassProcedure: clipboard data has been set!") }
-                            Err(e) => { error!("subclass_list_view::SubClassProcedure: could not set clipboard data: {e}") }
+                            Ok(_) => {
+                                info!("subclass_list_view::SubClassProcedure: clipboard data has been set!")
+                            }
+                            Err(e) => {
+                                error!("subclass_list_view::SubClassProcedure: could not set clipboard data: {e}")
+                            }
                         }
                     }
                 }
 
-                debug!("subclass_list_view::SubClassProcedure {}, w_param={}, lParama={}",u_msg, w_param, l_param);
+                debug!(
+                    "subclass_list_view::SubClassProcedure {}, w_param={}, lParama={}",
+                    u_msg, w_param, l_param
+                );
             }
         }
         let wm_any = winsafe::msg::WndMsg::new(u_msg, w_param, l_param);
@@ -187,7 +216,7 @@ impl SearchWindow {
                 let _ = crate::utils::try_set_dark_mode(myself.wnd.hwnd());
                 if let Ok(settings) = SETTINGS.read() {
                     let mut font = HFONT::CreateFont(
-                        SIZE::new(0,settings.font.size),
+                        SIZE::new(0, settings.font.size),
                         0,
                         0,
                         FW::MEDIUM,
@@ -209,31 +238,46 @@ impl SearchWindow {
                             hfont: font.leak(),
                             redraw: true,
                         }
-                            .as_generic_wm(),
+                        .as_generic_wm(),
                     );
 
-
-                    unsafe { let _ = myself.search_query_txt_box.hwnd().SetWindowSubclass(Self::handle_edit_text_box, 0, &myself as *const _ as _); }
-                    unsafe { let _ = myself.search_results_list.hwnd().SetWindowSubclass(Self::subclass_search_result_list_view, 0, &myself as *const _ as _); }
-
+                    unsafe {
+                        let _ = myself.search_query_txt_box.hwnd().SetWindowSubclass(
+                            Self::handle_edit_text_box,
+                            0,
+                            &myself as *const _ as _,
+                        );
+                    }
+                    unsafe {
+                        let _ = myself.search_results_list.hwnd().SetWindowSubclass(
+                            Self::subclass_search_result_list_view,
+                            0,
+                            &myself as *const _ as _,
+                        );
+                    }
                 }
                 Ok(0)
             }
         });
 
-
         self.search_query_txt_box.on().en_update({
             let myself = self.clone();
-            move ||{
+            move || {
                 let text = myself.search_query_txt_box.text();
-                const ASCII_DELETE : char = '\u{7f}';
-                if text.ends_with(ASCII_DELETE) { // ends in ASCII 127 == DELETE character
+                const ASCII_DELETE: char = '\u{7f}';
+                if text.ends_with(ASCII_DELETE) {
+                    // ends in ASCII 127 == DELETE character
 
-                    let (i,_) = text.char_indices().rfind(|(_,c)| c.ne(&ASCII_DELETE) && c.is_whitespace()).unwrap_or((0, 's'));
+                    let (i, _) = text
+                        .char_indices()
+                        .rfind(|(_, c)| c.ne(&ASCII_DELETE) && c.is_whitespace())
+                        .unwrap_or((0, 's'));
 
                     let next = &text[0..i];
                     myself.search_query_txt_box.set_text(next);
-                    myself.search_query_txt_box.set_selection(i as i32, i as i32);
+                    myself
+                        .search_query_txt_box
+                        .set_selection(i as i32, i as i32);
                 }
                 Ok(())
             }
@@ -260,7 +304,11 @@ impl SearchWindow {
         self.search_results_list.on().lvn_get_disp_info({
             let myself = self.clone();
             move |info| {
-                if myself.current_search_results.read().is_ok_and(|o| o.is_none()) {
+                if myself
+                    .current_search_results
+                    .read()
+                    .is_ok_and(|o| o.is_none())
+                {
                     return Ok(());
                 }
 
@@ -293,13 +341,14 @@ impl SearchWindow {
                                 Err("No search results available".to_string())
                             }
                         }
-                        Err(error) => {
-                            Err(format!("{error}"))
-                        }
+                        Err(error) => Err(format!("{error}")),
                     };
 
                     if line_set.is_err() {
-                        error!("SeachWindow: ERROR SETTING ITEM TEXT {index} {:?}", line_set.unwrap_err());
+                        error!(
+                            "SeachWindow: ERROR SETTING ITEM TEXT {index} {:?}",
+                            line_set.unwrap_err()
+                        );
                     }
                 }
 
@@ -326,12 +375,15 @@ impl SearchWindow {
                                             len,
                                             myself.current_file.read().unwrap().as_ref().unwrap()
                                         )
-                                            .as_str(),
+                                        .as_str(),
                                     );
 
-                                    info!("SEARCH WINDOW: SEARCH EXECUTED. #RES={}",len);
+                                    info!("SEARCH WINDOW: SEARCH EXECUTED. #RES={}", len);
                                     myself.search_results_list.items().delete_all();
-                                    myself.search_results_list.items().set_count(len as u32, None);
+                                    myself
+                                        .search_results_list
+                                        .items()
+                                        .set_count(len as u32, None);
                                 } else {
                                     error!("COULD NOT LOCK SearchWindow.current_search_results")
                                 }

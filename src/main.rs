@@ -1,16 +1,15 @@
-mod search;
-mod settings;
+mod control_window;
+mod highlighter;
 mod lineview;
 mod main_window;
-mod control_window;
+mod search;
+mod settings;
 mod utils;
 
-
-use lazy_static::lazy_static;
-use log::{error};
-use std::sync::{Arc, RwLock};
 use crate::control_window::ControlPanel;
-
+use lazy_static::lazy_static;
+use log::error;
+use std::sync::{Arc, RwLock};
 
 lazy_static! {
     static ref SETTINGS: RwLock<settings::Settings> = RwLock::new(settings::Settings::new());

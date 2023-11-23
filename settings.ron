@@ -1,0 +1,28 @@
+Settings(
+cache_size:5000,
+file_buffer_mb:8,
+max_nb_of_ui_threads:32,
+max_nb_of_lines_to_copy:5000,
+
+font: FontSettings(
+size:16,
+name:"Hack",
+italic:false),
+
+default_highlights: [
+    HighlightSetting(
+        fg_color: (255,255,255),
+        bg_color: (255,0,0),
+        expr: "ERROR",
+        case_insensitive: false),
+    HighlightSetting(
+        fg_color: (0,0,0),
+        bg_color: (255,255,0),
+        expr: "WARN",
+        case_insensitive: false),
+    HighlightSetting(
+            fg_color: (255,255,255),
+            bg_color: (0,0,255),
+            expr: "INFO",
+            case_insensitive: false)
+])

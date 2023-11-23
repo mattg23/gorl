@@ -1,18 +1,17 @@
-
-use std::sync::Arc;
 use log::{error, info};
+use std::sync::Arc;
 
-
-
-use winsafe::{gui, HFONT, SIZE};
 use winsafe::co::{BS, CHARSET, CLIP, FW, OUT_PRECIS, PITCH, QUALITY, SS, WS, WS_EX};
 use winsafe::gui::{Horz, LabelOpts, Vert};
+use winsafe::{gui, HFONT, SIZE};
 
-
-use winsafe::msg::wm::SetFont;
-use winsafe::prelude::{gdi_Hfont, GuiEvents, GuiNativeControlEvents, GuiParent, GuiThread, GuiWindow, GuiWindowText, MsgSend, shell_Hwnd, user_Hwnd};
 use crate::main_window::GorlMainWindow;
 use crate::SETTINGS;
+use winsafe::msg::wm::SetFont;
+use winsafe::prelude::{
+    gdi_Hfont, shell_Hwnd, user_Hwnd, GuiEvents, GuiNativeControlEvents, GuiParent, GuiThread,
+    GuiWindow, GuiWindowText, MsgSend,
+};
 
 #[derive(Clone)]
 pub(crate) struct ControlPanel {
@@ -21,7 +20,6 @@ pub(crate) struct ControlPanel {
     rt_handle: Arc<tokio::runtime::Runtime>,
     mem_label: gui::Label,
 }
-
 
 impl ControlPanel {
     pub fn new(rt_handle: Arc<tokio::runtime::Runtime>) -> Self {
@@ -58,15 +56,18 @@ impl ControlPanel {
 
         let lbl_with = win_width - btn_width - 40;
 
-        let mem_label = gui::Label::new(&wnd, LabelOpts {
-            text: "🐏 5 MB".to_string(),
-            position: ((win_width - lbl_with - 10) as i32, 10),
-            size: (lbl_with, 36),
-            label_style: SS::RIGHT,
-            window_style: WS::BORDER | WS::CHILD | WS::VISIBLE,
-            resize_behavior: (Horz::None, Vert::None),
-            ..Default::default()
-        });
+        let mem_label = gui::Label::new(
+            &wnd,
+            LabelOpts {
+                text: "🐏 5 MB".to_string(),
+                position: ((win_width - lbl_with - 10) as i32, 10),
+                size: (lbl_with, 36),
+                label_style: SS::RIGHT,
+                window_style: WS::BORDER | WS::CHILD | WS::VISIBLE,
+                resize_behavior: (Horz::None, Vert::None),
+                ..Default::default()
+            },
+        );
 
         let mut new_self = Self {
             wnd,
@@ -107,7 +108,8 @@ impl ControlPanel {
                     SetFont {
                         hfont: font.leak(),
                         redraw: true,
-                    }.as_generic_wm(),
+                    }
+                    .as_generic_wm(),
                 );
 
                 let mut font = HFONT::CreateFont(
@@ -126,12 +128,12 @@ impl ControlPanel {
                     "Verdana",
                 )?;
 
-
                 myself.mem_label.hwnd().SendMessage(
                     SetFont {
                         hfont: font.leak(),
                         redraw: true,
-                    }.as_generic_wm(),
+                    }
+                    .as_generic_wm(),
                 );
 
                 Ok(0)
@@ -152,7 +154,6 @@ impl ControlPanel {
                 Ok(())
             }
         });
-
 
         self.rt_handle.spawn({
             let myself = self.clone();
@@ -179,6 +180,7 @@ impl ControlPanel {
     }
 
     fn get_mem_info() -> Option<String> {
-        memory_stats::memory_stats().map(|stats| humansize::format_size(stats.virtual_mem, humansize::WINDOWS))
+        memory_stats::memory_stats()
+            .map(|stats| humansize::format_size(stats.virtual_mem, humansize::WINDOWS))
     }
 }

@@ -1,8 +1,8 @@
+use crate::{settings, SETTINGS};
+use log::debug;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::ops::{Bound, RangeBounds};
-use log::debug;
-use crate::{settings, SETTINGS};
 
 #[derive(Debug, Copy, Clone)]
 struct LastBound {
@@ -29,8 +29,9 @@ pub struct LineBasedFileView {
 
 impl LineBasedFileView {
     pub fn new(file_path: String) -> anyhow::Result<Self> {
-        let file = File::open(&file_path)?;
-        let mut reader = BufReader::with_capacity(SETTINGS.read().unwrap().file_buffer_mb*1024*1024,file);
+        let file = File::open(file_path)?;
+        let mut reader =
+            BufReader::with_capacity(SETTINGS.read().unwrap().file_buffer_mb * 1024 * 1024, file);
         let mut lines: Vec<LineChunk> = vec![];
 
         let mut chunk: LineChunk = LineChunk {
@@ -72,7 +73,8 @@ impl LineBasedFileView {
             if last.ne(&chunk) {
                 lines.push(chunk);
             }
-        } else { // file is small enough to fit into one page
+        } else {
+            // file is small enough to fit into one page
             lines.push(chunk);
         }
 
@@ -138,23 +140,31 @@ impl LineBasedFileView {
         let left_page_index = left / self.def_cache_size;
         let right_page_index = right / self.def_cache_size;
 
-        let left_page = *self.lines.get(left_page_index as usize)
-            .unwrap_or_else(|| self.lines.first().unwrap_or(&LineChunk {
+        let left_page = *self.lines.get(left_page_index as usize).unwrap_or_else(|| {
+            self.lines.first().unwrap_or(&LineChunk {
                 fst_line: 0,
                 lst_line: 0,
                 left_offset: 0,
                 right_offset: 0,
-            }));
+            })
+        });
 
-        let right_page = *self.lines.get(right_page_index as usize)
-            .unwrap_or_else(|| self.lines.last().unwrap_or(&LineChunk {
-                fst_line: 0,
-                lst_line: 0,
-                left_offset: 0,
-                right_offset: 0,
-            }));
+        let right_page = *self
+            .lines
+            .get(right_page_index as usize)
+            .unwrap_or_else(|| {
+                self.lines.last().unwrap_or(&LineChunk {
+                    fst_line: 0,
+                    lst_line: 0,
+                    left_offset: 0,
+                    right_offset: 0,
+                })
+            });
 
-        self.last_bounds = Some(LastBound { left: left_page.fst_line, right: right_page.lst_line });
+        self.last_bounds = Some(LastBound {
+            left: left_page.fst_line,
+            right: right_page.lst_line,
+        });
 
         self.reader.seek(SeekFrom::Start(left_page.left_offset))?;
 
