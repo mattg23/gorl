@@ -17,6 +17,7 @@ pub(crate) struct Highlighter {
     settings: Vec<(RegexMatcher, HighlightSetting)>,
 }
 
+#[derive(Debug,Copy,Clone)]
 pub(crate) struct HighlightMatch {
     pub fg_color: HighlightColor,
     pub bg_color: HighlightColor,

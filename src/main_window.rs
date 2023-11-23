@@ -309,17 +309,22 @@ impl GorlMainWindow {
                         Ok(co::CDRF::NOTIFYITEMDRAW)
                     }
                     CDDS::ITEMPREPAINT => {
-                        // set color here?
                         if let Ok(line) = myself.view.write().unwrap().as_mut().unwrap().get_line(draw.mcd.dwItemSpec as u64){
                             if let Some(highlight) = &myself.highlighter.matches(line.as_str()) {
-                                debug!("nm_custom_draw::ITEMPREPAINT::draw.mcd.dwItemSpec={} MATCHED", draw.mcd.dwItemSpec);
-                                draw.clrText = COLORREF::new(highlight.fg_color.0, highlight.fg_color.1, highlight.fg_color.2);
-                                draw.clrTextBk = COLORREF::new(highlight.bg_color.0, highlight.bg_color.1, highlight.bg_color.2);
+
+                                let txt_clr = COLORREF::new(highlight.fg_color.0, highlight.fg_color.1, highlight.fg_color.2);
+                                unsafe {
+                                    *draw.clrText.as_mut() = txt_clr.raw();
+                                }
+
+                                let bg_clr = COLORREF::new(highlight.bg_color.0, highlight.bg_color.1, highlight.bg_color.2);
+                                unsafe {
+                                    *draw.clrTextBk.as_mut() = bg_clr.raw();
+                                }
+
+                                debug!("nm_custom_draw::ITEMPREPAINT::draw.mcd.dwItemSpec={} MATCHED;", draw.mcd.dwItemSpec);
                             }
                         }
-
-
-
 
                         Ok(co::CDRF::DODEFAULT)
                     }
