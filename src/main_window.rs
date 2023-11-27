@@ -313,14 +313,12 @@ impl GorlMainWindow {
                             if let Some(highlight) = &myself.highlighter.matches(line.as_str()) {
 
                                 let txt_clr = COLORREF::new(highlight.fg_color.0, highlight.fg_color.1, highlight.fg_color.2);
-                                unsafe {
-                                    *draw.clrText.as_mut() = txt_clr.raw();
-                                }
+                                draw.clrText = txt_clr;
+
 
                                 let bg_clr = COLORREF::new(highlight.bg_color.0, highlight.bg_color.1, highlight.bg_color.2);
-                                unsafe {
-                                    *draw.clrTextBk.as_mut() = bg_clr.raw();
-                                }
+                                draw.clrTextBk = bg_clr;
+
 
                                 debug!("nm_custom_draw::ITEMPREPAINT::draw.mcd.dwItemSpec={} MATCHED;", draw.mcd.dwItemSpec);
                             }
