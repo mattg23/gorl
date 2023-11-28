@@ -30,6 +30,7 @@ pub(crate) struct Settings {
     pub max_nb_of_ui_threads: usize,
     pub max_nb_of_lines_to_copy: u32,
     pub default_highlights: Option<Vec<HighlightSetting>>,
+    pub keep_search_res_in_mem_until: Option<usize>,
 }
 
 pub(crate) const DEF_CACHE_RANGE: u64 = 500;
@@ -42,6 +43,7 @@ impl Default for Settings {
             max_nb_of_lines_to_copy: 2500,
             font: FontSettings::default(),
             default_highlights: None,
+            keep_search_res_in_mem_until: Some(32 * 1024 * 1024)
         }
     }
 }

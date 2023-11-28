@@ -19,17 +19,18 @@ pub struct LineChunk {
 }
 
 #[derive(Debug)]
-pub struct LineBasedFileView {
-    reader: BufReader<File>,
+pub struct LineBasedFileView<R: std::io::Read + std::io::Seek> {
+    reader: BufReader<R>,
     lines: Vec<LineChunk>,
     line_cache: Vec<String>,
     last_bounds: Option<LastBound>,
     def_cache_size: u64,
 }
 
-impl LineBasedFileView {
-    pub fn new(file_path: String) -> anyhow::Result<Self> {
-        let file = File::open(file_path)?;
+impl<R: Seek + Read> LineBasedFileView<R>  {
+    pub fn new(mut file: R) -> anyhow::Result<Self> {
+
+        file.seek(SeekFrom::Start(0))?;
         let mut reader =
             BufReader::with_capacity(SETTINGS.read().unwrap().file_buffer_mb * 1024 * 1024, file);
         let mut lines: Vec<LineChunk> = vec![];

@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::rc::Rc;
 use std::sync::RwLock;
 
@@ -24,7 +25,7 @@ pub(crate) enum MwMessage {
 pub(crate) struct GorlMainWindow {
     pub(crate) wnd: gui::WindowMain,
     list_view: gui::ListView,
-    view: Rc<RwLock<Option<LineBasedFileView>>>,
+    view: Rc<RwLock<Option<LineBasedFileView<File>>>>,
     search_window: SearchWindow,
     inbox: Receiver<MwMessage>,
     highlighter: Highlighter, //transmitter: Sender<MwMessage>,
@@ -110,9 +111,9 @@ impl GorlMainWindow {
         new_self
     }
 
-    fn open_file(&self, path: &str) -> anyhow::Result<LineBasedFileView> {
+    fn open_file(&self, path: &str) -> anyhow::Result<LineBasedFileView<File>> {
         let bf = std::time::SystemTime::now();
-        let view = LineBasedFileView::new(path.to_owned())?;
+        let view = LineBasedFileView::new(File::open(path)?)?;
         let now = std::time::SystemTime::now();
 
         if let Ok(elapsed) = now.duration_since(bf) {

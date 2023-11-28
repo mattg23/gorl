@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use crate::SETTINGS;
 use flume::Sender;
 use grep::regex::RegexMatcherBuilder;
@@ -6,6 +8,7 @@ use grep::searcher::{BinaryDetection, SearcherBuilder};
 use log::{debug, error, info};
 use std::rc::Rc;
 use std::sync::RwLock;
+use tempfile::{SpooledTempFile, tempfile};
 
 use winsafe::co::{
     BS, CHARSET, CLIP, COLOR, ES, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, VK, WS,
@@ -13,35 +16,50 @@ use winsafe::co::{
 use winsafe::gui::{Brush, Horz, ListViewOpts, Vert};
 use winsafe::msg::wm::SetFont;
 use winsafe::{co, gui, prelude::*, WString, HFONT, SIZE};
+use crate::lineview::LineBasedFileView;
 
 use crate::main_window::MwMessage;
 
-fn search_in_file(query: &str, path: &str) -> anyhow::Result<Vec<(u64, String)>> {
-    let mut res = vec![];
 
-    let matcher = RegexMatcherBuilder::default()
-        .case_insensitive(true)
-        .line_terminator(Some(b'\n'))
-        .build(query)?;
+fn search_in_file(query: &str, path: &str) -> anyhow::Result<LineBasedFileView<File>> {
 
-    let mut searcher = SearcherBuilder::new()
-        .binary_detection(BinaryDetection::quit(b'\x00'))
-        .line_number(true)
-        .build();
+    // TODO: merge Tempfile & LineBasedFileView ?  OR create LineBasedFileView here and return that?
+    //       Currently we are writing the file line by line UNBUFFERED!
+    //       Then reading the file byte by byte to create the pages for the line View
+    //       we could create the pages for the lineview WHILE writing into a buffered TEMPFILE where the buffer dictates the max mem size
+    //       Other idea: Search every time and skip the first N matches until the desired listitem is found
 
-    searcher.search_path(
-        matcher,
-        path,
-        UTF8(|lnum, line| {
-            res.push((lnum, line.to_owned()));
-            Ok(true)
-        }),
-    )?;
 
-    Ok(res)
+    //let mut res = SpooledTempFile::new();
+    let mut temp = tempfile()?;
+    debug!("{temp:?}");
+    {
+        let mut res = BufWriter::with_capacity(SETTINGS.read().unwrap().keep_search_res_in_mem_until.unwrap_or(8 * 1024 * 1024), temp.try_clone()?);
+
+        let matcher = RegexMatcherBuilder::default()
+            .case_insensitive(true)
+            .line_terminator(Some(b'\n'))
+            .build(query)?;
+
+        let mut searcher = SearcherBuilder::new()
+            .binary_detection(BinaryDetection::quit(b'\x00'))
+            .line_number(true)
+            .build();
+
+        searcher.search_path(
+            matcher,
+            path,
+            UTF8(|lnum, line| {
+                res.write(format!("{lnum}|{line}").as_bytes());
+                Ok(true)
+            }),
+        )?;
+    }
+
+    LineBasedFileView::new(temp)
 }
 
-type SearchResults = Rc<RwLock<Option<Vec<(u64, String)>>>>;
+type SearchResults = Rc<RwLock<Option<LineBasedFileView<File>>>>;
 
 #[derive(Clone)]
 pub(crate) struct SearchWindow {
@@ -52,6 +70,7 @@ pub(crate) struct SearchWindow {
     current_file: Rc<RwLock<Option<String>>>,
     transmitter: Sender<MwMessage>,
     current_search_results: SearchResults,
+
 }
 
 impl SearchWindow {
@@ -238,7 +257,7 @@ impl SearchWindow {
                             hfont: font.leak(),
                             redraw: true,
                         }
-                        .as_generic_wm(),
+                            .as_generic_wm(),
                     );
 
                     unsafe {
@@ -314,16 +333,18 @@ impl SearchWindow {
 
                 if info.item.mask.has(co::LVIF::TEXT) {
                     let index = info.item.iItem as usize;
-                    let line_set = match myself.current_search_results.read() {
-                        Ok(guard) => {
+                    let line_set = match myself.current_search_results.write() {
+                        Ok(mut guard) => {
                             if guard.is_some() {
-                                let results = guard.as_ref().unwrap();
-                                if let Some((lnum, line)) = results.get(index) {
+                                let results = guard.as_mut().unwrap();
+                                if let Ok(line) = results.get_line(index as u64) {
+                                    let split: Vec<&str> = line.split('|').collect();
+
                                     let text_to_set = if info.item.iSubItem == 0 {
                                         // first col
-                                        WString::from_str(format!("{lnum}"))
+                                        WString::from_str(split.get(0).unwrap_or(&"unwrap_or iSubItem ==0 "))
                                     } else {
-                                        WString::from_str(line)
+                                        WString::from_str(split.get(1).unwrap_or(&"unwrap_or iSubItem ==1 "))
                                     };
 
                                     let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer
@@ -365,25 +386,28 @@ impl SearchWindow {
                         let query = myself.search_query_txt_box.text();
                         match search_in_file(query.as_str(), file.as_str()) {
                             Ok(search_results) => {
-                                let len = search_results.len();
                                 if let Ok(mut guard) = myself.current_search_results.write() {
-                                    *guard = Some(search_results);
+                                    let view = search_results;
+                                   // if let Ok(view) = LineBasedFileView::new(search_results) {
+                                        let len = view.line_count();
+                                        *guard = Some(view);
 
-                                    myself.wnd.set_text(
-                                        format!(
-                                            "GORL - Search - #RES={} [{}]",
-                                            len,
-                                            myself.current_file.read().unwrap().as_ref().unwrap()
-                                        )
-                                        .as_str(),
-                                    );
+                                        myself.wnd.set_text(
+                                            format!(
+                                                "GORL - Search - #RES={} [{}]",
+                                                len,
+                                                myself.current_file.read().unwrap().as_ref().unwrap()
+                                            )
+                                                .as_str(),
+                                        );
 
-                                    info!("SEARCH WINDOW: SEARCH EXECUTED. #RES={}", len);
-                                    myself.search_results_list.items().delete_all();
-                                    myself
-                                        .search_results_list
-                                        .items()
-                                        .set_count(len as u32, None);
+                                        info!("SEARCH WINDOW: SEARCH EXECUTED. #RES={}", len);
+                                        myself.search_results_list.items().delete_all();
+                                        myself
+                                            .search_results_list
+                                            .items()
+                                            .set_count(len as u32, None);
+                                    //}
                                 } else {
                                     error!("COULD NOT LOCK SearchWindow.current_search_results")
                                 }
