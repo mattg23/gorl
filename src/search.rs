@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Seek, Write};
 use crate::SETTINGS;
 use flume::Sender;
 use grep::regex::RegexMatcherBuilder;
@@ -8,7 +8,9 @@ use grep::searcher::{BinaryDetection, SearcherBuilder};
 use log::{debug, error, info};
 use std::rc::Rc;
 use std::sync::RwLock;
+use bitpacking::{BitPacker, BitPacker8x};
 use tempfile::{SpooledTempFile, tempfile};
+use tracing_subscriber::fmt::format;
 
 use winsafe::co::{
     BS, CHARSET, CLIP, COLOR, ES, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, VK, WS,
@@ -21,45 +23,168 @@ use crate::lineview::LineBasedFileView;
 use crate::main_window::MwMessage;
 
 
-fn search_in_file(query: &str, path: &str) -> anyhow::Result<LineBasedFileView<File>> {
+fn search_in_file(query: &str, path: &str) -> anyhow::Result<CompressedSearchResults> {
 
     // TODO: merge Tempfile & LineBasedFileView ?  OR create LineBasedFileView here and return that?
     //       Currently we are writing the file line by line UNBUFFERED!
     //       Then reading the file byte by byte to create the pages for the line View
     //       we could create the pages for the lineview WHILE writing into a buffered TEMPFILE where the buffer dictates the max mem size
     //       Other idea: Search every time and skip the first N matches until the desired listitem is found
+    //       -----------------------
+    //       Why are we saving the lines anyway?
+    //       There is already a LineBasedFileView in the MainWindow, can we use that?
+    //       This way we only would need to store the line numbers which matched the search.
+    //       If we do it this way, then we could keep more search results in mem (bc only numbers)
+    //       And in case we spill to disk it would be much faster
 
 
     //let mut res = SpooledTempFile::new();
-    let mut temp = tempfile()?;
-    debug!("{temp:?}");
-    {
-        let mut res = BufWriter::with_capacity(SETTINGS.read().unwrap().keep_search_res_in_mem_until.unwrap_or(8 * 1024 * 1024), temp.try_clone()?);
+    //let mut temp = tempfile()?;
+    //debug!("{temp:?}");
 
-        let matcher = RegexMatcherBuilder::default()
-            .case_insensitive(true)
-            .line_terminator(Some(b'\n'))
-            .build(query)?;
+    //let mut res = BufWriter::with_capacity(SETTINGS.read().unwrap().keep_search_res_in_mem_until.unwrap_or(8 * 1024 * 1024), temp.try_clone()?);
+    let start = std::time::Instant::now();
+    //let mut res = Vec::with_capacity(1024*1024);
 
-        let mut searcher = SearcherBuilder::new()
-            .binary_detection(BinaryDetection::quit(b'\x00'))
-            .line_number(true)
-            .build();
+    let matcher = RegexMatcherBuilder::default()
+        .case_insensitive(true)
+        .line_terminator(Some(b'\n'))
+        .build(query)?;
 
-        searcher.search_path(
-            matcher,
-            path,
-            UTF8(|lnum, line| {
-                res.write(format!("{lnum}|{line}").as_bytes());
-                Ok(true)
-            }),
-        )?;
+    let mut searcher = SearcherBuilder::new()
+        .binary_detection(BinaryDetection::quit(b'\x00'))
+        .line_number(true)
+        .build();
+
+    let mut search_res = CompressedSearchResults::new();
+    let mut buffer = Vec::with_capacity(256);
+
+    searcher.search_path(
+        matcher,
+        path,
+        UTF8(|lnum, _| {
+            search_res.append_line_number(lnum as u32, &mut buffer);
+            Ok(true)
+        }),
+    )?;
+
+    if buffer.len() > 0 {
+        search_res.finish(&mut buffer);
     }
 
-    LineBasedFileView::new(temp)
+    let took = start.elapsed();
+    let mb = humansize::format_size(search_res.get_size(), humansize::WINDOWS);
+    info!("search_in_file:: #Res={} took= {}ms, bytes = {mb}", search_res.get_count(), took.as_millis());
+    Ok(search_res)
 }
 
-type SearchResults = Rc<RwLock<Option<LineBasedFileView<File>>>>;
+struct SearchResultPage {
+    pub compressed_0_offset: usize,
+    pub compressed_len: usize,
+    pub num_bits: u8,
+    pub len: usize,
+}
+
+struct CompressedSearchResults {
+    bytes: Vec<u8>,
+    pages: Vec<SearchResultPage>,
+}
+
+impl CompressedSearchResults {
+    pub fn new() -> Self {
+        Self {
+            bytes: vec![0; 8192],
+            pages: Vec::new(),
+        }
+    }
+    const BLOCK_LEN: usize = BitPacker8x::BLOCK_LEN;
+
+    pub fn get(&self, index: usize) -> Option<u32> {
+        if index > self.get_count() {
+            return None;
+        }
+
+        let page_idx = index / Self::BLOCK_LEN;
+
+        if let Some(page) = self.pages.get(page_idx) {
+            let mut decompressed = vec![0u32; Self::BLOCK_LEN];
+            let bit_packer = BitPacker8x::new();
+
+            bit_packer.decompress_strictly_sorted(None,
+                                                  &self.bytes[page.compressed_0_offset..(page.compressed_0_offset + page.compressed_len)],
+                                                  &mut decompressed,
+                                                  page.num_bits);
+
+            decompressed.get(index % Self::BLOCK_LEN).map(|line| *line)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_count(&self) -> usize {
+        self.pages.iter().map(|p| p.len).sum()
+    }
+
+    pub fn get_size(&self) -> usize {
+        let size_bytes = std::mem::size_of::<Vec<u8>>() + self.bytes.capacity() * std::mem::size_of::<u8>();
+        let size_pages = std::mem::size_of::<Vec<SearchResultPage>>() + self.pages.capacity() * std::mem::size_of::<SearchResultPage>();
+        size_bytes + size_pages
+    }
+    pub fn append_line_number(&mut self, line_number: u32, buffer: &mut Vec<u32>) {
+        if buffer.len() == Self::BLOCK_LEN {
+            self.compress_and_add_page(buffer, buffer.len());
+            buffer.clear();
+        }
+
+        buffer.push(line_number);
+    }
+
+    pub fn finish(&mut self, buffer: &mut Vec<u32>) {
+        let valid_len = buffer.len();
+
+        if valid_len == Self::BLOCK_LEN {
+            self.compress_and_add_page(buffer, valid_len);
+        } else {
+            while buffer.len() < Self::BLOCK_LEN {
+                buffer.push(0);
+            }
+
+            self.compress_and_add_page(buffer, valid_len);
+        }
+
+        buffer.clear();
+        self.bytes.truncate(self.pages.last().map(|p| p.compressed_0_offset + p.compressed_len).unwrap_or(0));
+    }
+
+    fn compress_and_add_page(&mut self, data: &mut Vec<u32>, valid_len: usize) {
+        let bit_packer = BitPacker8x::new();
+
+        let last_offset_used = self.pages.last().map(|p| p.compressed_0_offset + p.compressed_len).unwrap_or(0);
+        let num_bits: u8 = bit_packer.num_bits_strictly_sorted(None, data.as_slice());
+        let max_space_used = 4 * Self::BLOCK_LEN;
+
+        let new_len = if self.bytes.len() - last_offset_used >= max_space_used {
+            self.bytes.len()
+        } else {
+            self.bytes.len() + 2 * max_space_used
+        };
+
+        self.bytes.resize(new_len, 0);
+
+        let slice = self.bytes[last_offset_used..].as_mut();
+        let written = bit_packer.compress_strictly_sorted(None, data.as_slice(), slice, num_bits);
+        let page = SearchResultPage {
+            compressed_len: written,
+            compressed_0_offset: last_offset_used,
+            num_bits,
+            len: valid_len,
+        };
+
+        self.pages.push(page);
+    }
+}
+
+type SearchResults = Rc<RwLock<Option<CompressedSearchResults>>>;
 
 #[derive(Clone)]
 pub(crate) struct SearchWindow {
@@ -70,11 +195,11 @@ pub(crate) struct SearchWindow {
     current_file: Rc<RwLock<Option<String>>>,
     transmitter: Sender<MwMessage>,
     current_search_results: SearchResults,
-
+    view: Rc<RwLock<Option<LineBasedFileView<File>>>>,
 }
 
 impl SearchWindow {
-    pub fn new(parent: &impl GuiParent, transmitter: Sender<MwMessage>) -> Self {
+    pub fn new(parent: &impl GuiParent, transmitter: Sender<MwMessage>, view: Rc<RwLock<Option<LineBasedFileView<File>>>>) -> Self {
         let wnd = gui::WindowModeless::new(
             parent,
             gui::WindowModelessOpts {
@@ -137,6 +262,7 @@ impl SearchWindow {
             current_file: Rc::new(RwLock::new(None)),
             transmitter,
             current_search_results: Rc::new(RwLock::new(None)),
+            view,
         };
 
         new_self.events(); // attach our events
@@ -336,15 +462,27 @@ impl SearchWindow {
                     let line_set = match myself.current_search_results.write() {
                         Ok(mut guard) => {
                             if guard.is_some() {
-                                let results = guard.as_mut().unwrap();
-                                if let Ok(line) = results.get_line(index as u64) {
-                                    let split: Vec<&str> = line.split('|').collect();
+                                let results = guard.as_ref().unwrap();
+                                if let Some(line) = results.get(index as usize) {
+                                    let split = format!("{line}");
 
                                     let text_to_set = if info.item.iSubItem == 0 {
                                         // first col
-                                        WString::from_str(split.get(0).unwrap_or(&"unwrap_or iSubItem ==0 "))
+                                        WString::from_str(split)
                                     } else {
-                                        WString::from_str(split.get(1).unwrap_or(&"unwrap_or iSubItem ==1 "))
+                                        if let Ok(mut lock_res) = myself.view.write() {
+                                            if let Some(view_ref) = lock_res.as_mut() {
+                                                if let Ok(actual_line) = view_ref.get_line((line - 1) as u64) {
+                                                    WString::from_str(actual_line)
+                                                } else {
+                                                    WString::from_str("GORL ERROR IN SEARCH: Line not found")
+                                                }
+                                            } else {
+                                                WString::from_str("GORL ERROR IN SEARCH: Could not get lock view ref mutably INNER")
+                                            }
+                                        } else {
+                                            WString::from_str("GORL ERROR IN SEARCH: Could not get lock view ref mutably INNER")
+                                        }
                                     };
 
                                     let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer
@@ -388,25 +526,24 @@ impl SearchWindow {
                             Ok(search_results) => {
                                 if let Ok(mut guard) = myself.current_search_results.write() {
                                     let view = search_results;
-                                   // if let Ok(view) = LineBasedFileView::new(search_results) {
-                                        let len = view.line_count();
-                                        *guard = Some(view);
+                                    let len = view.get_count();
+                                    *guard = Some(view);
 
-                                        myself.wnd.set_text(
-                                            format!(
-                                                "GORL - Search - #RES={} [{}]",
-                                                len,
-                                                myself.current_file.read().unwrap().as_ref().unwrap()
-                                            )
-                                                .as_str(),
-                                        );
+                                    myself.wnd.set_text(
+                                        format!(
+                                            "GORL - Search - #RES={} [{}]",
+                                            len,
+                                            myself.current_file.read().unwrap().as_ref().unwrap()
+                                        )
+                                            .as_str(),
+                                    );
 
-                                        info!("SEARCH WINDOW: SEARCH EXECUTED. #RES={}", len);
-                                        myself.search_results_list.items().delete_all();
-                                        myself
-                                            .search_results_list
-                                            .items()
-                                            .set_count(len as u32, None);
+                                    info!("SEARCH WINDOW: SEARCH EXECUTED. #RES={}", len);
+                                    myself.search_results_list.items().delete_all();
+                                    myself
+                                        .search_results_list
+                                        .items()
+                                        .set_count(len as u32, None);
                                     //}
                                 } else {
                                     error!("COULD NOT LOCK SearchWindow.current_search_results")

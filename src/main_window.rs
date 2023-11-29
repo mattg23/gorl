@@ -71,12 +71,12 @@ impl GorlMainWindow {
 
         let settings_lck = SETTINGS.read().unwrap();
         let highlight_settings = settings_lck.default_highlights.as_ref();
-
-        let search_window = SearchWindow::new(&wnd, transmitter.clone());
+        let view =Rc::new(RwLock::new(None));
+        let search_window = SearchWindow::new(&wnd, transmitter.clone(), view.clone());
         let mut new_self = Self {
             wnd: wnd.clone(),
             list_view,
-            view: Rc::new(RwLock::new(None)),
+            view,
             search_window,
             inbox: inbox.clone(),
             highlighter: Highlighter::new(highlight_settings.map_or( vec![] ,|a| a.clone())), //transmitter: transmitter.clone(),
