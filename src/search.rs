@@ -1,5 +1,4 @@
 use std::fs::File;
-use std::io::{BufWriter, Seek, Write};
 use crate::SETTINGS;
 use flume::Sender;
 use grep::regex::RegexMatcherBuilder;
@@ -9,8 +8,8 @@ use log::{debug, error, info};
 use std::rc::Rc;
 use std::sync::RwLock;
 use bitpacking::{BitPacker, BitPacker8x};
-use tempfile::{SpooledTempFile, tempfile};
-use tracing_subscriber::fmt::format;
+
+
 
 use winsafe::co::{
     BS, CHARSET, CLIP, COLOR, ES, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, VK, WS,
@@ -68,7 +67,7 @@ fn search_in_file(query: &str, path: &str) -> anyhow::Result<CompressedSearchRes
         }),
     )?;
 
-    if buffer.len() > 0 {
+    if !buffer.is_empty() {
         search_res.finish(&mut buffer);
     }
 
@@ -115,7 +114,7 @@ impl CompressedSearchResults {
                                                   &mut decompressed,
                                                   page.num_bits);
 
-            decompressed.get(index % Self::BLOCK_LEN).map(|line| *line)
+            decompressed.get(index % Self::BLOCK_LEN).copied()
         } else {
             None
         }
@@ -460,29 +459,27 @@ impl SearchWindow {
                 if info.item.mask.has(co::LVIF::TEXT) {
                     let index = info.item.iItem as usize;
                     let line_set = match myself.current_search_results.write() {
-                        Ok(mut guard) => {
+                        Ok(guard) => {
                             if guard.is_some() {
                                 let results = guard.as_ref().unwrap();
-                                if let Some(line) = results.get(index as usize) {
+                                if let Some(line) = results.get(index) {
                                     let split = format!("{line}");
 
                                     let text_to_set = if info.item.iSubItem == 0 {
                                         // first col
                                         WString::from_str(split)
-                                    } else {
-                                        if let Ok(mut lock_res) = myself.view.write() {
-                                            if let Some(view_ref) = lock_res.as_mut() {
-                                                if let Ok(actual_line) = view_ref.get_line((line - 1) as u64) {
-                                                    WString::from_str(actual_line)
-                                                } else {
-                                                    WString::from_str("GORL ERROR IN SEARCH: Line not found")
-                                                }
+                                    } else if let Ok(mut lock_res) = myself.view.write() {
+                                        if let Some(view_ref) = lock_res.as_mut() {
+                                            if let Ok(actual_line) = view_ref.get_line((line - 1) as u64) {
+                                                WString::from_str(actual_line)
                                             } else {
-                                                WString::from_str("GORL ERROR IN SEARCH: Could not get lock view ref mutably INNER")
+                                                WString::from_str("GORL ERROR IN SEARCH: Line not found")
                                             }
                                         } else {
                                             WString::from_str("GORL ERROR IN SEARCH: Could not get lock view ref mutably INNER")
                                         }
+                                    } else {
+                                        WString::from_str("GORL ERROR IN SEARCH: Could not get lock view ref mutably INNER")
                                     };
 
                                     let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer

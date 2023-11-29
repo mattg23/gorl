@@ -1,6 +1,6 @@
 use crate::{settings, SETTINGS};
 use log::debug;
-use std::fs::File;
+
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::ops::{Bound, RangeBounds};
 
