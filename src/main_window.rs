@@ -273,13 +273,13 @@ impl GorlMainWindow {
                     for f in itr {
                         info!("Dropped FILE={:?}", f);
                         if let Ok(f) = f {
-                            match (myself).open_file(&f) {
+                            match myself.open_file(&f) {
                                 Ok(view) => {
                                     {
                                         *myself.view.write().unwrap() = Some(view);
                                     }
                                     myself.list_view.items().set_count(
-                                        (myself.view.read().unwrap().as_ref().unwrap().line_count())
+                                        myself.view.read().unwrap().as_ref().unwrap().line_count()
                                             as u32,
                                         None,
                                     );
@@ -343,8 +343,6 @@ impl GorlMainWindow {
                 info.item.lParam = 1337;
 
                 if info.item.mask.has(co::LVIF::TEXT) {
-                    // is this a text request?
-                    //println!("iItem={}; iSubItem={}; cColumns={};", info.item.iItem, info.item.iSubItem,info.item.cColumns);
                     let index = info.item.iItem as usize;
                     if info.item.iSubItem == 0 {
                         let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer
@@ -383,7 +381,6 @@ impl GorlMainWindow {
             }
         });
         self.list_view.on().lvn_od_cache_hint(|_f| {
-            //println!("lvn_od_cache_hint from {} to {}", f.iFrom, f.iTo);
             Ok(())
         });
     }

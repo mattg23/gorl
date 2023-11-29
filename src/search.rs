@@ -24,26 +24,7 @@ use crate::main_window::MwMessage;
 
 fn search_in_file(query: &str, path: &str) -> anyhow::Result<CompressedSearchResults> {
 
-    // TODO: merge Tempfile & LineBasedFileView ?  OR create LineBasedFileView here and return that?
-    //       Currently we are writing the file line by line UNBUFFERED!
-    //       Then reading the file byte by byte to create the pages for the line View
-    //       we could create the pages for the lineview WHILE writing into a buffered TEMPFILE where the buffer dictates the max mem size
-    //       Other idea: Search every time and skip the first N matches until the desired listitem is found
-    //       -----------------------
-    //       Why are we saving the lines anyway?
-    //       There is already a LineBasedFileView in the MainWindow, can we use that?
-    //       This way we only would need to store the line numbers which matched the search.
-    //       If we do it this way, then we could keep more search results in mem (bc only numbers)
-    //       And in case we spill to disk it would be much faster
-
-
-    //let mut res = SpooledTempFile::new();
-    //let mut temp = tempfile()?;
-    //debug!("{temp:?}");
-
-    //let mut res = BufWriter::with_capacity(SETTINGS.read().unwrap().keep_search_res_in_mem_until.unwrap_or(8 * 1024 * 1024), temp.try_clone()?);
     let start = std::time::Instant::now();
-    //let mut res = Vec::with_capacity(1024*1024);
 
     let matcher = RegexMatcherBuilder::default()
         .case_insensitive(true)
