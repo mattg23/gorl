@@ -71,7 +71,7 @@ impl GorlMainWindow {
 
         let settings_lck = SETTINGS.read().unwrap();
         let highlight_settings = settings_lck.default_highlights.as_ref();
-        let view =Rc::new(RwLock::new(None));
+        let view = Rc::new(RwLock::new(None));
         let search_window = SearchWindow::new(&wnd, transmitter.clone(), view.clone());
         let mut new_self = Self {
             wnd: wnd.clone(),
@@ -79,7 +79,7 @@ impl GorlMainWindow {
             view,
             search_window,
             inbox: inbox.clone(),
-            highlighter: Highlighter::new(highlight_settings.map_or( vec![] ,|a| a.clone())), //transmitter: transmitter.clone(),
+            highlighter: Highlighter::new(highlight_settings.map_or(vec![], |a| a.clone())), //transmitter: transmitter.clone(),
         };
 
         let wnd_copy = wnd.clone();
@@ -233,7 +233,7 @@ impl GorlMainWindow {
                         CHARSET::DEFAULT,
                         OUT_PRECIS::DEFAULT,
                         CLIP::DEFAULT_PRECIS,
-                        QUALITY::DEFAULT,
+                        QUALITY::CLEARTYPE,
                         PITCH::FIXED,
                         settings.font.name.as_str(),
                     )?;
@@ -303,32 +303,45 @@ impl GorlMainWindow {
 
         self.list_view.on().nm_custom_draw({
             let myself = self.clone();
-            move |draw: &mut winsafe::NMLVCUSTOMDRAW| {
-                match draw.mcd.dwDrawStage {
-                    CDDS::PREPAINT => {
-                        debug!("PREPAINT");
-                        Ok(co::CDRF::NOTIFYITEMDRAW)
-                    }
-                    CDDS::ITEMPREPAINT => {
-                        if let Ok(line) = myself.view.write().unwrap().as_mut().unwrap().get_line(draw.mcd.dwItemSpec as u64){
-                            if let Some(highlight) = &myself.highlighter.matches(line.as_str()) {
-
-                                let txt_clr = COLORREF::new(highlight.fg_color.0, highlight.fg_color.1, highlight.fg_color.2);
-                                draw.clrText = txt_clr;
-
-
-                                let bg_clr = COLORREF::new(highlight.bg_color.0, highlight.bg_color.1, highlight.bg_color.2);
-                                draw.clrTextBk = bg_clr;
-
-
-                                debug!("nm_custom_draw::ITEMPREPAINT::draw.mcd.dwItemSpec={} MATCHED;", draw.mcd.dwItemSpec);
-                            }
-                        }
-
-                        Ok(co::CDRF::DODEFAULT)
-                    }
-                    _ => Ok(co::CDRF::DODEFAULT),
+            move |draw: &mut winsafe::NMLVCUSTOMDRAW| match draw.mcd.dwDrawStage {
+                CDDS::PREPAINT => {
+                    debug!("PREPAINT");
+                    Ok(co::CDRF::NOTIFYITEMDRAW)
                 }
+                CDDS::ITEMPREPAINT => {
+                    if let Ok(line) = myself
+                        .view
+                        .write()
+                        .unwrap()
+                        .as_mut()
+                        .unwrap()
+                        .get_line(draw.mcd.dwItemSpec as u64)
+                    {
+                        if let Some(highlight) = &myself.highlighter.matches(line.as_str()) {
+                            let txt_clr = COLORREF::new(
+                                highlight.fg_color.0,
+                                highlight.fg_color.1,
+                                highlight.fg_color.2,
+                            );
+                            draw.clrText = txt_clr;
+
+                            let bg_clr = COLORREF::new(
+                                highlight.bg_color.0,
+                                highlight.bg_color.1,
+                                highlight.bg_color.2,
+                            );
+                            draw.clrTextBk = bg_clr;
+
+                            debug!(
+                                "nm_custom_draw::ITEMPREPAINT::draw.mcd.dwItemSpec={} MATCHED;",
+                                draw.mcd.dwItemSpec
+                            );
+                        }
+                    }
+
+                    Ok(co::CDRF::DODEFAULT)
+                }
+                _ => Ok(co::CDRF::DODEFAULT),
             }
         });
 
@@ -380,8 +393,6 @@ impl GorlMainWindow {
                 Ok(())
             }
         });
-        self.list_view.on().lvn_od_cache_hint(|_f| {
-            Ok(())
-        });
+        self.list_view.on().lvn_od_cache_hint(|_f| Ok(()));
     }
 }

@@ -43,7 +43,7 @@ impl Default for Settings {
             max_nb_of_lines_to_copy: 2500,
             font: FontSettings::default(),
             default_highlights: None,
-            keep_search_res_in_mem_until: Some(32 * 1024 * 1024)
+            keep_search_res_in_mem_until: Some(32 * 1024 * 1024),
         }
     }
 }
