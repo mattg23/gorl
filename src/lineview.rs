@@ -1,4 +1,4 @@
-use crate::{settings, SETTINGS};
+use crate::{SETTINGS, settings};
 use log::debug;
 
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
@@ -27,9 +27,8 @@ pub struct LineBasedFileView<R: std::io::Read + std::io::Seek> {
     def_cache_size: u64,
 }
 
-impl<R: Seek + Read> LineBasedFileView<R>  {
+impl<R: Seek + Read> LineBasedFileView<R> {
     pub fn new(mut file: R) -> anyhow::Result<Self> {
-
         file.seek(SeekFrom::Start(0))?;
         let mut reader =
             BufReader::with_capacity(SETTINGS.read().unwrap().file_buffer_mb * 1024 * 1024, file);
@@ -177,7 +176,13 @@ impl<R: Seek + Read> LineBasedFileView<R>  {
         let res = BufReader::new(buf.as_slice());
         self.line_cache = res.lines().map(|l| l.unwrap()).collect();
 
-        debug!("LEFT_PAGE = {left_page:?} || RIGHT_PAGE = {right_page:?} || R.START = {:?} || R.END = {:?} || SELF.LASTBOUNDS = {:?} || CACHELEN = {}", r.start_bound(), r.end_bound(), &self.last_bounds, self.line_cache.len());
+        debug!(
+            "LEFT_PAGE = {left_page:?} || RIGHT_PAGE = {right_page:?} || R.START = {:?} || R.END = {:?} || SELF.LASTBOUNDS = {:?} || CACHELEN = {}",
+            r.start_bound(),
+            r.end_bound(),
+            &self.last_bounds,
+            self.line_cache.len()
+        );
 
         Ok(())
     }

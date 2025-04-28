@@ -4,15 +4,15 @@ use std::sync::RwLock;
 
 use crate::highlighter::Highlighter;
 use crate::lineview::LineBasedFileView;
-use winsafe::msg::wm::SetFont;
 use winsafe::msg::WndMsg;
+use winsafe::msg::wm::SetFont;
 
 use crate::search::SearchWindow;
 use flume::Receiver;
 use log::{debug, error, info};
 use winsafe::co::{CDDS, CHARSET, CLIP, FW, LVS, LVS_EX, OUT_PRECIS, PITCH, QUALITY, VK};
 use winsafe::gui::{Horz, ListViewOpts, Vert};
-use winsafe::{co, gui, prelude::*, WString, COLORREF, HFONT, HWND, SIZE};
+use winsafe::{COLORREF, HFONT, HWND, SIZE, WString, co, gui, prelude::*};
 
 use crate::SETTINGS;
 
@@ -58,7 +58,7 @@ impl GorlMainWindow {
             ListViewOpts {
                 position: (10, 10),
                 size: (880, 580),
-                columns: vec![("L".to_string(), 128), ("Text".to_string(), 3200)],
+                columns: vec![("L".to_string(), 128), ("Text".to_string(), 9999)],
                 resize_behavior: (Horz::Resize, Vert::Resize),
                 list_view_ex_style: LVS_EX::DOUBLEBUFFER | LVS_EX::FULLROWSELECT,
                 list_view_style: LVS::REPORT
@@ -182,10 +182,14 @@ impl GorlMainWindow {
 
                         match crate::utils::copy_text_to_clipboard(&h_wnd, str_to_cpy.as_str()) {
                             Ok(_) => {
-                                info!("subclass_list_view::SubClassProcedure: clipboard data has been set!")
+                                info!(
+                                    "subclass_list_view::SubClassProcedure: clipboard data has been set!"
+                                )
                             }
                             Err(e) => {
-                                error!("subclass_list_view::SubClassProcedure: could not set clipboard data: {e}")
+                                error!(
+                                    "subclass_list_view::SubClassProcedure: could not set clipboard data: {e}"
+                                )
                             }
                         }
                     }
@@ -360,10 +364,7 @@ impl GorlMainWindow {
                     if info.item.iSubItem == 0 {
                         let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer
                         let out_slice = unsafe { std::slice::from_raw_parts_mut(ptr, cch as _) };
-                        out_slice
-                            .iter_mut()
-                            .zip(WString::from_str(format!("{}", index + 1)).as_slice())
-                            .for_each(|(dest, src)| *dest = *src); // copy from our string to their buffer
+                        WString::from_str(format!("{}", index + 1)).copy_to_slice(out_slice);
                     } else {
                         let line_text = if let Ok(mut lock_res) = myself.view.write() {
                             if let Some(view_ref) = lock_res.as_mut() {
@@ -380,10 +381,7 @@ impl GorlMainWindow {
                                 let (ptr, cch) = info.item.raw_pszText(); // retrieve raw pointer
                                 let out_slice =
                                     unsafe { std::slice::from_raw_parts_mut(ptr, cch as _) };
-                                out_slice
-                                    .iter_mut()
-                                    .zip(WString::from_str(text.as_str()).as_slice())
-                                    .for_each(|(dest, src)| *dest = *src); // copy from our string to their buffer
+                                WString::from_str(text.as_str()).copy_to_slice(out_slice);
                             }
                             r => error!("ERROR getting line: {:?}", r),
                         };
