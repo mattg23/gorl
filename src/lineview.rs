@@ -1,8 +1,11 @@
 use crate::{settings, SETTINGS};
+use egui::TextBuffer;
 use log::debug;
+use tracing::trace;
 
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::ops::{Bound, RangeBounds};
+use std::str::FromStr;
 
 #[derive(Debug, Copy, Clone)]
 struct LastBound {
@@ -25,11 +28,11 @@ pub struct LineBasedFileView<R: std::io::Read + std::io::Seek> {
     line_cache: Vec<String>,
     last_bounds: Option<LastBound>,
     def_cache_size: u64,
+    path: String,
 }
 
-impl<R: Seek + Read> LineBasedFileView<R>  {
-    pub fn new(mut file: R) -> anyhow::Result<Self> {
-
+impl<R: Seek + Read> LineBasedFileView<R> {
+    pub fn new(mut file: R, path: &str) -> anyhow::Result<Self> {
         file.seek(SeekFrom::Start(0))?;
         let mut reader =
             BufReader::with_capacity(SETTINGS.read().unwrap().file_buffer_mb * 1024 * 1024, file);
@@ -85,6 +88,7 @@ impl<R: Seek + Read> LineBasedFileView<R>  {
             line_cache: vec![],
             last_bounds: None,
             def_cache_size,
+            path: String::from_str(path.clone()).unwrap_or(String::default()),
         })
     }
 
@@ -98,6 +102,14 @@ impl<R: Seek + Read> LineBasedFileView<R>  {
         } else {
             0
         }
+    }
+
+    pub fn formatted_info(&self) -> String {
+        let mut res = String::new();
+        res.push_str(self.path.as_str());
+        res.push_str(" - ".as_str());
+        res.push_str(format!(" [{}]", self.line_count()).as_str());
+        res
     }
 
     pub fn get_line(&mut self, index: u64) -> Result<String, String> {
@@ -177,7 +189,7 @@ impl<R: Seek + Read> LineBasedFileView<R>  {
         let res = BufReader::new(buf.as_slice());
         self.line_cache = res.lines().map(|l| l.unwrap()).collect();
 
-        debug!("LEFT_PAGE = {left_page:?} || RIGHT_PAGE = {right_page:?} || R.START = {:?} || R.END = {:?} || SELF.LASTBOUNDS = {:?} || CACHELEN = {}", r.start_bound(), r.end_bound(), &self.last_bounds, self.line_cache.len());
+        log::info!("LEFT_PAGE = {left_page:?} || RIGHT_PAGE = {right_page:?} || R.START = {:?} || R.END = {:?} || SELF.LASTBOUNDS = {:?} || CACHELEN = {}", r.start_bound(), r.end_bound(), &self.last_bounds, self.line_cache.len());
 
         Ok(())
     }
