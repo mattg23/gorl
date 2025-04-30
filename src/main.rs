@@ -1,3 +1,4 @@
+mod common;
 mod control_window;
 mod highlighter;
 mod lineview;
@@ -8,37 +9,45 @@ mod utils;
 
 use crate::control_window::ControlPanel;
 use lazy_static::lazy_static;
-use log::error;
 use std::sync::{Arc, RwLock};
+
+use crate::common::{GorlMsg, WindowId};
+use fltk::app;
 
 lazy_static! {
     static ref SETTINGS: RwLock<settings::Settings> = RwLock::new(settings::Settings::new());
 }
 
-fn main() -> anyhow::Result<()> {
+struct Gorl {
+    app: app::App,
+    receiver: app::Receiver<GorlMsg>,
+    ctrl: ControlPanel,
+}
+
+impl Gorl {
+    pub fn new() -> Self {
+        let app = app::App::default();
+        let (_, receiver) = app::channel();
+
+        let ctrl = ControlPanel::new();
+
+        Self {
+            app,
+            receiver,
+            ctrl,
+        }
+    }
+
+    pub fn run(&mut self) {
+        while self.app.wait() {}
+    }
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .max_blocking_threads(SETTINGS.read().unwrap().max_nb_of_ui_threads) // basically the limit of log file one can open
-        .build()
-        .unwrap();
-
-    let rt_handle = Arc::new(rt);
-
-    let outer_handle = rt_handle.clone();
-
-    let fst = outer_handle.spawn_blocking(move || {
-        let my = ControlPanel::new(rt_handle); // instantiate our main window
-        if let Err(e) = my.wnd.run_main(None) {
-            // ... and run it
-            error!("{}", e);
-        }
-    });
-
-    outer_handle.block_on(async move {
-        let _ = fst.await;
-    });
+    Gorl::new().run();
 
     Ok(())
 }
