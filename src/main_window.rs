@@ -27,8 +27,8 @@ pub(crate) struct GorlLogWindow {
 }
 
 impl GorlLogWindow {
-    pub async fn new() -> Self {
-        info!("Creating Main Window. Settings = {:?}", SETTINGS.read());
+    pub fn new() -> Self {
+        info!("Creating Gorl Log Window. Settings = {:?}", SETTINGS.read());
 
         let (s, receiver) = app::channel();
 
