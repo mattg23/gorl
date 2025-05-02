@@ -50,21 +50,31 @@ impl Gorl {
     }
 
     pub fn run(&mut self) {
-        let f = fltk::draw::font();
-        log::info!("{f:?}");
         while self.app.wait() {
             if let Some(msg) = self.receiver.recv() {
                 log::debug!("GORL::RUN:: {msg:?}");
                 match msg {
                     GorlMsg::OpenLogWindow => self.open(),
                     GorlMsg::CloseLogWindow(id) => self.close(id),
+                    GorlMsg::OpenFileIn(w, _) => {
+                        if let Some(win) = self.log_windows.get_mut(&w) {
+                            win.process_message(&msg);
+                        }
+                    }
                 }
             }
         }
     }
 
-    fn open(&mut self) {}
-    fn close(&mut self, id: WindowId) {}
+    fn open(&mut self) {
+        let log_win = GorlLogWindow::new();
+        self.log_windows.insert(log_win.get_id(), log_win);
+    }
+    fn close(&mut self, id: WindowId) {
+        if let Some((_, mut window)) = self.log_windows.remove_entry(&id) {
+            window.close();
+        }
+    }
 }
 
 #[tokio::main]
