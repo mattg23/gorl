@@ -1,7 +1,7 @@
 Settings(
 cache_size:2500,
-file_buffer_mb:4,
-max_nb_of_ui_threads:32,
+file_buffer_mb:8,
+max_nb_of_ui_threads:4,
 max_nb_of_lines_to_copy:5000,
 
 font: FontSettings(

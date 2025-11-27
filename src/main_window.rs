@@ -69,49 +69,6 @@ impl GorlLogWindow {
         win.make_resizable(true);
         win.show();
 
-        win.handle({
-            let mut dnd = false;
-            let mut released = false;
-            let outbox = s.clone();
-            move |_, ev| match ev {
-                Event::DndEnter => {
-                    dnd = true;
-                    true
-                }
-                Event::Hide => {
-                    outbox.send(GorlMsg::CloseLogWindow(id));
-                    true
-                }
-                Event::DndDrag => true,
-                Event::DndRelease => {
-                    released = true;
-                    true
-                }
-                Event::Paste => {
-                    if dnd && released {
-                        let path = app::event_text();
-                        let path = path.trim();
-                        let path = path.replace("file://", "");
-                        let path = std::path::PathBuf::from(&path);
-                        if path.exists() {
-                            // we use a timeout to avoid pasting the path into the buffer
-                            outbox.send(GorlMsg::OpenFileIn(id, path));
-                        }
-                        dnd = false;
-                        released = false;
-                        true
-                    } else {
-                        false
-                    }
-                }
-                Event::DndLeave => {
-                    dnd = false;
-                    released = false;
-                    true
-                }
-                _ => false,
-            }
-        });
         let mut self_ = Self {
             view: Rc::new(RwLock::new(None)),
             search_window: None,
@@ -121,6 +78,44 @@ impl GorlLogWindow {
             id,
             table: table.clone(),
         };
+
+        table.handle({
+            let outbox = s.clone();
+            let id = id;
+            let mut dnd = false;
+
+            move |_, ev| match ev {
+                Event::DndEnter => {
+                    dnd = true;
+                    true
+                }
+                Event::DndDrag => true,    // accept drag
+                Event::DndRelease => true, // accept release
+                Event::Paste => {
+                    if dnd {
+                        let raw = app::event_text();
+
+                        for uri in raw.split_whitespace() {
+                            let uri = uri.trim();
+                            let uri = uri.strip_prefix("file://").unwrap_or(uri);
+                            let pb = PathBuf::from(uri);
+
+                            if pb.exists() {
+                                outbox.send(GorlMsg::OpenFileIn(id, pb));
+                            }
+                        }
+
+                        dnd = false;
+                    }
+                    true
+                }
+                Event::DndLeave => {
+                    dnd = false;
+                    true
+                }
+                _ => false,
+            }
+        });
 
         table.draw_cell({
             let outbox = s.clone();

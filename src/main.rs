@@ -15,7 +15,7 @@ use std::sync::{Arc, RwLock};
 use crate::common::{GorlMsg, WindowId};
 use crate::main_window::GorlLogWindow;
 use fltk::app;
-use fltk_theme::WidgetTheme;
+use fltk_theme::{WidgetScheme, WidgetTheme};
 
 lazy_static! {
     static ref SETTINGS: RwLock<settings::Settings> = RwLock::new(settings::Settings::new());
@@ -35,7 +35,8 @@ impl Gorl {
 
         app::set_font_size(18);
 
-        let window_theme = WidgetTheme::new(fltk_theme::ThemeType::Dark);
+        let window_theme = WidgetTheme::new(fltk_theme::ThemeType::HighContrast);
+
         window_theme.apply();
 
         let ctrl = ControlPanel::new();
