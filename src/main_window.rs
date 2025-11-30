@@ -17,9 +17,10 @@ use fltk::{
     valuator::Scrollbar,
     window::{self, DoubleWindow},
 };
+use lru::LruCache;
 use skia_safe::{
     Font, Paint,
-    textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, TextStyle},
+    textlayout::{FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextStyle},
 };
 
 use log::{debug, error, info};
@@ -38,8 +39,10 @@ pub struct SkiaView {
     pub buf: Vec<u8>,
     pub stride: usize,
     pub font_collection: FontCollection,
+    pub font: Font,
     pub width: i32,
     pub height: i32,
+    pub cache: LruCache<u64, Paragraph>,
 }
 
 pub(crate) struct GorlLogWindow {
@@ -66,21 +69,30 @@ impl SkiaView {
 
         let settings = SETTINGS.read().expect("SETTINGS");
 
+        let font_mgr = skia_safe::FontMgr::new();
+        let font = Font::new(
+            font_mgr
+                .legacy_make_typeface(settings.font.name.as_str(), skia_safe::FontStyle::normal())
+                .unwrap(),
+            SETTINGS.read().unwrap().font.size as f32,
+        );
         let font_collection = {
             // We need a system font manager to be able to load typefaces.
-            let font_mgr = skia_safe::FontMgr::new();
 
             let mut font_collection = FontCollection::new();
             font_collection.set_default_font_manager(font_mgr, settings.font.name.as_str());
             font_collection.enable_font_fallback();
             font_collection
         };
+
         Self {
             buf,
             stride,
             font_collection,
+            font,
             width: w,
             height: h,
+            cache: LruCache::new(std::num::NonZeroUsize::new(300).unwrap()),
         }
     }
 
@@ -93,11 +105,19 @@ impl SkiaView {
         self.height = h;
         self.stride = (w as usize) * 4;
         self.buf.resize(self.stride * (h as usize), 0);
+        self.cache.resize(
+            std::num::NonZeroUsize::new((self.max_visible_lines() * 5) as usize)
+                .unwrap_or(std::num::NonZeroUsize::new(300).unwrap()),
+        );
     }
 
     pub fn max_visible_lines(&self) -> u64 {
-        (self.height / SETTINGS.read().unwrap().font.size) as u64
+        let f_size = self.font.size();
+        let line_height = ((f_size * Self::LINE_HEIGHT).ceil() as i32) + 2;
+        (self.height / line_height) as u64
     }
+
+    const LINE_HEIGHT: f32 = 1.0;
 
     pub fn draw(&mut self, text: &Vec<(u64, String)>, max_line_count: u64) {
         let info = ImageInfo::new(
@@ -123,11 +143,11 @@ impl SkiaView {
         let mut ln_bg = Paint::default();
         ln_bg.set_color(skia_safe::Color::from_argb(255, 10, 10, 10));
 
-        let font = Font::new(
-            self.font_collection.default_fallback().unwrap(),
-            SETTINGS.read().unwrap().font.size as f32,
-        );
-        let f_size = font.size().floor() as usize;
+        let font = &self.font;
+
+        let f_size = font.size();
+
+        let line_height = ((f_size * Self::LINE_HEIGHT).ceil() as usize) + 2;
 
         let max_str = format!("{max_line_count}");
         let char_width = max_str.len();
@@ -152,14 +172,14 @@ impl SkiaView {
                 ln_zeros_width = font.measure_str(ln_zeros.as_str(), None).0 as i32;
                 canvas.draw_str(
                     ln_zeros,
-                    (4, ((i + 1) * f_size) as i32),
+                    (4, ((i + 1) * line_height) as i32),
                     &font,
                     &paint_ln_zeros,
                 );
             }
             canvas.draw_str(
                 ln_str,
-                (4 + ln_zeros_width, ((i + 1) * f_size) as i32),
+                (4 + ln_zeros_width, ((i + 1) * line_height) as i32),
                 &font,
                 &paint_ln,
             );
@@ -170,21 +190,26 @@ impl SkiaView {
             //     &paint,
             // );
 
-            let mut paragraph_style = ParagraphStyle::new();
-            paragraph_style.set_max_lines(1);
-            paragraph_style.set_text_align(skia_safe::textlayout::TextAlign::Left);
-            paragraph_style.set_text_direction(skia_safe::textlayout::TextDirection::LTR);
-            let mut paragraph_builder =
-                ParagraphBuilder::new(&paragraph_style, &self.font_collection);
-            let mut ts = TextStyle::new();
-            ts.set_font_size(f_size as f32);
-            ts.set_baseline_shift(1.0);
-            ts.set_foreground_paint(&paint);
-            paragraph_builder.push_style(&ts);
-            paragraph_builder.add_text(&line.as_str());
-            let mut paragraph = paragraph_builder.build();
-            paragraph.layout(f32::MAX);
-            paragraph.paint(&canvas, (max_width as i32 + 16, ((i) * f_size) as i32));
+            let paragraph = self.cache.get_or_insert_mut(*ln, || {
+                let mut paragraph_style = ParagraphStyle::new();
+                paragraph_style.set_max_lines(1);
+                paragraph_style.set_text_align(skia_safe::textlayout::TextAlign::Left);
+                paragraph_style.set_text_direction(skia_safe::textlayout::TextDirection::LTR);
+                paragraph_style.set_replace_tab_characters(true);
+                let mut strut_style = skia_safe::textlayout::StrutStyle::new();
+                let mut paragraph_builder =
+                    ParagraphBuilder::new(&paragraph_style, &self.font_collection);
+                let mut ts = TextStyle::new();
+                ts.set_font_families(&[SETTINGS.read().unwrap().font.name.clone()]);
+                ts.set_font_size(f_size as f32);
+                ts.set_foreground_paint(&paint);
+                paragraph_builder.push_style(&ts);
+                paragraph_builder.add_text(&line.as_str());
+                let mut paragraph = paragraph_builder.build();
+                paragraph.layout(f32::MAX);
+                paragraph
+            });
+            paragraph.paint(&canvas, (max_width as i32 + 16, ((i) * line_height) as i32));
         }
     }
 }
@@ -229,12 +254,15 @@ impl GorlLogWindow {
                 Event::Paste => {
                     if dnd {
                         let raw = app::event_text();
+                        dbg!(&raw);
 
-                        for uri in raw.split_whitespace() {
+                        let uri = raw.lines().into_iter().next();
+                        if let Some(uri) = uri {
                             let uri = uri.trim();
                             let uri = uri.strip_prefix("file://").unwrap_or(uri);
-                            let pb = PathBuf::from(uri);
-
+                            let uri = urlencoding::decode(uri).unwrap();
+                            let pb = PathBuf::from(uri.into_owned());
+                            dbg!(&pb);
                             if pb.exists() {
                                 outbox.send(GorlMsg::OpenFileIn(id, pb));
                             }
@@ -281,7 +309,6 @@ impl GorlLogWindow {
 
         win.end();
         win.resizable(&frame);
-        win.resizable(&sb);
         win.make_resizable(true);
         win.show();
 
@@ -300,10 +327,13 @@ impl GorlLogWindow {
         self_
     }
 
-    fn draw_text(&mut self) {
+    fn draw_text(&mut self, reset_scroll: bool) {
         if let Ok(mut lock) = self.view.write() {
             if let Some(view) = lock.as_mut() {
-                let current = (self.right_scroll.value() as u64).max(1);
+                let current = match reset_scroll {
+                    false => (self.right_scroll.value() as u64).max(1),
+                    true => 1,
+                };
 
                 let max = view.line_count();
                 let visible = self.skia.borrow().max_visible_lines();
@@ -322,11 +352,17 @@ impl GorlLogWindow {
         }
     }
 
-    fn redraw_frame(&mut self) {
-        self.draw_text();
+    fn redraw_frame(&mut self, reset_scroll: bool) {
+        self.draw_text(reset_scroll);
         draw::draw_rgba(&mut self.frame, &self.skia.borrow().buf)
             .expect("redraw_frame:: could not draw into frame");
         self.frame.redraw();
+
+        if let Some(win) = self.window.as_ref() {
+            self.right_scroll.set_size(SBWIDTH, win.h());
+            self.right_scroll.set_pos(win.w() - SBWIDTH, 0);
+        }
+
         self.right_scroll.redraw();
     }
 
@@ -356,19 +392,18 @@ impl GorlLogWindow {
             GorlMsg::OpenFileIn(w, path) if *w == id => match self.open_file(path) {
                 Ok(view) => {
                     *self.view.write().unwrap() = Some(view);
-
-                    self.redraw_frame();
+                    self.skia.borrow_mut().cache.clear();
                     self.window
                         .as_mut()
                         .expect("dropped a file into an hidden window?")
                         .set_label(format!("GORL 🪵🪟 - {path:?}").as_str());
-                    self.redraw_frame();
+                    self.redraw_frame(true);
                 }
                 Err(e) => {
                     error!("could not open {path:?}. ERR={e:?}");
                 }
             },
-            GorlMsg::Refresh(w) if *w == id => self.redraw_frame(),
+            GorlMsg::Refresh(w) if *w == id => self.redraw_frame(false),
             _ => {}
         };
     }
