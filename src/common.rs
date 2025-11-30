@@ -8,6 +8,7 @@ pub enum GorlMsg {
     OpenLogWindow,
     CloseLogWindow(WindowId),
     OpenFileIn(WindowId, PathBuf),
+    Refresh(WindowId),
 }
 
 static WINDOW_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);

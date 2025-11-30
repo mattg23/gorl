@@ -6,7 +6,7 @@ max_nb_of_lines_to_copy:5000,
 
 font: FontSettings(
 size:16,
-name:"Hack",
+name:"Noto Mono",
 italic:false),
 
 default_highlights: [

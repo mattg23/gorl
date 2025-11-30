@@ -62,6 +62,11 @@ impl Gorl {
                             win.process_message(&msg);
                         }
                     }
+                    GorlMsg::Refresh(w) => {
+                        if let Some(win) = self.log_windows.get_mut(&w) {
+                            win.process_message(&msg);
+                        }
+                    }
                 }
             }
         }
