@@ -53,7 +53,7 @@ impl Gorl {
     pub fn run(&mut self) {
         while self.app.wait() {
             if let Some(msg) = self.receiver.recv() {
-                log::debug!("GORL::RUN:: {msg:?}");
+                log::trace!("GORL::RUN:: {msg:?}");
                 match msg {
                     GorlMsg::OpenLogWindow => self.open(),
                     GorlMsg::CloseLogWindow(id) => self.close(id),

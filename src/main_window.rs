@@ -23,7 +23,7 @@ use skia_safe::{
     textlayout::{FontCollection, Paragraph, ParagraphBuilder, ParagraphStyle, TextStyle},
 };
 
-use log::{debug, error, info};
+use log::{debug, error, info, trace};
 
 use crate::SETTINGS;
 
@@ -285,7 +285,7 @@ impl GorlLogWindow {
                 }
                 Event::NoEvent => false,
                 _ => {
-                    debug!("{:?}", ev);
+                    trace!("{:?}", ev);
                     false
                 }
             }
@@ -386,7 +386,7 @@ impl GorlLogWindow {
     pub fn process_message(&mut self, msg: &GorlMsg) {
         let id = self.get_id();
 
-        debug!("process_message: {msg:?}");
+        trace!("process_message: {msg:?}");
 
         match msg {
             GorlMsg::OpenFileIn(w, path) if *w == id => match self.open_file(path) {
@@ -398,6 +398,7 @@ impl GorlLogWindow {
                         .expect("dropped a file into an hidden window?")
                         .set_label(format!("GORL 🪵🪟 - {path:?}").as_str());
                     self.redraw_frame(true);
+                    debug!("process_message: {msg:?}");
                 }
                 Err(e) => {
                     error!("could not open {path:?}. ERR={e:?}");

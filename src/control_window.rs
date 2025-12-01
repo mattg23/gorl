@@ -49,6 +49,7 @@ impl ControlPanel {
         row.end();
         ctrl_window.end();
         ctrl_window.show();
+        ctrl_window.set_on_top();
     }
 
     pub fn process_msg(&mut self, msg: &GorlMsg) {}

@@ -5,7 +5,7 @@ max_nb_of_ui_threads:4,
 max_nb_of_lines_to_copy:5000,
 
 font: FontSettings(
-size:24,
+size:16,
 name:"Fira Code Nerd Font",
 italic:false),
 
