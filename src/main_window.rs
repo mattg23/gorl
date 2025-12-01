@@ -173,22 +173,16 @@ impl SkiaView {
                 canvas.draw_str(
                     ln_zeros,
                     (4, ((i + 1) * line_height) as i32),
-                    &font,
+                    font,
                     &paint_ln_zeros,
                 );
             }
             canvas.draw_str(
                 ln_str,
                 (4 + ln_zeros_width, ((i + 1) * line_height) as i32),
-                &font,
+                font,
                 &paint_ln,
             );
-            // canvas.draw_str(
-            //     &line.1.as_str(),
-            //     (max_width as i32 + 16, ((i + 1) * f_size) as i32),
-            //     &font,
-            //     &paint,
-            // );
 
             let paragraph = self.cache.get_or_insert_mut(*ln, || {
                 let mut paragraph_style = ParagraphStyle::new();
@@ -196,20 +190,19 @@ impl SkiaView {
                 paragraph_style.set_text_align(skia_safe::textlayout::TextAlign::Left);
                 paragraph_style.set_text_direction(skia_safe::textlayout::TextDirection::LTR);
                 paragraph_style.set_replace_tab_characters(true);
-                let mut strut_style = skia_safe::textlayout::StrutStyle::new();
                 let mut paragraph_builder =
                     ParagraphBuilder::new(&paragraph_style, &self.font_collection);
                 let mut ts = TextStyle::new();
                 ts.set_font_families(&[SETTINGS.read().unwrap().font.name.clone()]);
-                ts.set_font_size(f_size as f32);
+                ts.set_font_size(f_size);
                 ts.set_foreground_paint(&paint);
                 paragraph_builder.push_style(&ts);
-                paragraph_builder.add_text(&line.as_str());
+                paragraph_builder.add_text(line.as_str());
                 let mut paragraph = paragraph_builder.build();
                 paragraph.layout(f32::MAX);
                 paragraph
             });
-            paragraph.paint(&canvas, (max_width as i32 + 16, ((i) * line_height) as i32));
+            paragraph.paint(canvas, (max_width as i32 + 16, ((i) * line_height) as i32));
         }
     }
 }
@@ -239,7 +232,7 @@ impl GorlLogWindow {
         let skia_ = skia.clone();
 
         frame.handle({
-            let outbox = s.clone();
+            let outbox = s;
             let id = id;
             let mut dnd = false;
             let sk = skia_.clone();
@@ -256,7 +249,7 @@ impl GorlLogWindow {
                         let raw = app::event_text();
                         dbg!(&raw);
 
-                        let uri = raw.lines().into_iter().next();
+                        let uri = raw.lines().next();
                         if let Some(uri) = uri {
                             let uri = uri.trim();
                             let uri = uri.strip_prefix("file://").unwrap_or(uri);
@@ -294,7 +287,7 @@ impl GorlLogWindow {
         let mut sb = fltk::valuator::Scrollbar::new(1200 - SBWIDTH, 0, SBWIDTH, 800, None);
 
         sb.handle({
-            let outbox = s.clone();
+            let outbox = s;
             move |b, ev| {
                 //dbg!(ev);
                 match ev {
@@ -312,7 +305,7 @@ impl GorlLogWindow {
         win.make_resizable(true);
         win.show();
 
-        let mut self_ = Self {
+        Self {
             view: Rc::new(RwLock::new(None)),
             search_window: None,
             outbox: s,
@@ -320,11 +313,9 @@ impl GorlLogWindow {
             window: Some(win),
             id,
             frame,
-            skia: skia,
+            skia,
             right_scroll: sb,
-        };
-
-        self_
+        }
     }
 
     fn draw_text(&mut self, reset_scroll: bool) {
@@ -341,7 +332,7 @@ impl GorlLogWindow {
                 let mut lines = Vec::with_capacity(take as usize);
                 for i in (current - 1)..(current + take).min(max) {
                     if let Ok(line) = view.get_line(i) {
-                        lines.push(((i + 1) as u64, line));
+                        lines.push(((i + 1), line));
                     }
                 }
 

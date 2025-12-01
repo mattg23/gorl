@@ -57,7 +57,7 @@ impl<R: Seek + Read> LineBasedFileView<R> {
             chunk.lst_line += 1;
             chunk.right_offset = reader.stream_position().unwrap();
 
-            if chunk.lst_line % chunk_size == 0 {
+            if chunk.lst_line.is_multiple_of(chunk_size) {
                 // get current stream pos & push
                 lines.push(chunk);
 
@@ -113,11 +113,7 @@ impl<R: Seek + Read> LineBasedFileView<R> {
 
         let def_cache_range = self.def_cache_size;
 
-        let left = if index > def_cache_range {
-            index - def_cache_range
-        } else {
-            0
-        };
+        let left = index.saturating_sub(def_cache_range);
         match self.cache_lines(left..=u64::min(index + def_cache_range, self.line_count())) {
             Ok(_) => self.get_line(index),
             Err(err) => Err(format!("ERROR READING LINE {index} with ERR: {err}")),

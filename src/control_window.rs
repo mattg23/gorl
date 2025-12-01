@@ -1,11 +1,10 @@
-use log::{error, info};
-use std::sync::Arc;
+use log::info;
 
 use crate::SETTINGS;
 use fltk::{
     app,
     prelude::*,
-    window::{self, SingleWindow},
+    window::{self},
 };
 
 use crate::common::GorlMsg;
@@ -31,10 +30,10 @@ impl ControlPanel {
             .with_size(400, 64)
             .with_label("GORL");
 
-        let mut row = fltk::group::Flex::default_fill().row();
+        let row = fltk::group::Flex::default_fill().row();
         let mut open_window_btn = fltk::button::Button::default().with_label("Open 🪵🪟");
         open_window_btn.set_label_size(18);
-        let p_sender = self.outbox.clone();
+        let p_sender = self.outbox;
         open_window_btn.set_callback(move |_| {
             p_sender.send(GorlMsg::OpenLogWindow);
         });

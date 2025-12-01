@@ -10,12 +10,12 @@ mod utils;
 use crate::control_window::ControlPanel;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 use crate::common::{GorlMsg, WindowId};
 use crate::main_window::GorlLogWindow;
 use fltk::app;
-use fltk_theme::{WidgetScheme, WidgetTheme};
+use fltk_theme::WidgetTheme;
 
 lazy_static! {
     static ref SETTINGS: RwLock<settings::Settings> = RwLock::new(settings::Settings::new());

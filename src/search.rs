@@ -1,17 +1,15 @@
-use crate::SETTINGS;
 use bitpacking::{BitPacker, BitPacker8x};
 use fltk::app;
 use grep::regex::RegexMatcherBuilder;
 use grep::searcher::sinks::UTF8;
 use grep::searcher::{BinaryDetection, SearcherBuilder};
-use log::{debug, error, info};
+use log::info;
 use std::fs::File;
 use std::rc::Rc;
 use std::sync::RwLock;
 
 use crate::common::{GorlMsg, WindowId};
 use crate::lineview::LineBasedFileView;
-use crate::main_window::MwMessage;
 
 fn search_in_file(query: &str, path: &str) -> anyhow::Result<CompressedSearchResults> {
     let start = std::time::Instant::now();
