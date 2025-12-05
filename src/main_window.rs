@@ -225,7 +225,9 @@ impl GorlLogWindow {
             .with_size(1200, 800)
             .with_label("GORL 🪵🪟");
 
-        let mut frame = Frame::default().size_of(&win);
+        let mut frame = Frame::default()
+            .size_of(&win)
+            .with_label("Drop a 🪵 file here to open...");
 
         let skia = Rc::new(RefCell::new(SkiaView::new(1200 - SBWIDTH, 800)));
 
