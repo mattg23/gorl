@@ -1,5 +1,4 @@
 use bitpacking::{BitPacker, BitPacker8x};
-use fltk::app;
 use grep::regex::RegexMatcherBuilder;
 use grep::searcher::sinks::UTF8;
 use grep::searcher::{BinaryDetection, SearcherBuilder};
@@ -8,7 +7,7 @@ use std::fs::File;
 use std::rc::Rc;
 use std::sync::RwLock;
 
-use crate::common::{GorlMsg, WindowId};
+use crate::common::GorlMsg;
 use crate::lineview::LineBasedFileView;
 
 fn search_in_file(query: &str, path: &str) -> anyhow::Result<CompressedSearchResults> {
@@ -174,21 +173,18 @@ type SearchResults = Rc<RwLock<Option<CompressedSearchResults>>>;
 
 #[derive(Clone)]
 pub(crate) struct SearchWindow {
-    parent: WindowId,
     current_file: Rc<RwLock<Option<String>>>,
-    transmitter: app::Sender<GorlMsg>,
+    transmitter: std::sync::mpsc::Sender<GorlMsg>,
     current_search_results: SearchResults,
     view: Rc<RwLock<Option<LineBasedFileView<File>>>>,
 }
 
 impl SearchWindow {
     pub fn new(
-        parent: WindowId,
-        transmitter: app::Sender<GorlMsg>,
+        transmitter: std::sync::mpsc::Sender<GorlMsg>,
         view: Rc<RwLock<Option<LineBasedFileView<File>>>>,
     ) -> Self {
         Self {
-            parent,
             current_file: Rc::new(RwLock::new(None)),
             transmitter,
             view,
